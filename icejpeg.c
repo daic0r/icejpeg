@@ -10,7 +10,7 @@
 #include <string.h>
 
 
-#define _JPEG_DEBUG
+//#define _JPEG_DEBUG
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 #define MAX_DC_TABLES 4
@@ -35,14 +35,11 @@ byte *file_buf;
 int buf_pos = 0;
 struct stat st; // file stats
 word cur_segment_len;
-int skip_stuff_byte = 0;
-
 
 byte cur_byte_remaining = 8;
 
 byte max_samp_x, max_samp_y;
 int eoi = 0;
-//short prev_dc = 0;
 int block[64];
 int mcu_width, mcu_height;
 int num_mcu_x, num_mcu_y;
@@ -53,22 +50,6 @@ byte next_rst_marker = 0;
 int rstcount = 0;
 byte *image;
 struct jpeg_component *components;
-
-// This is an example of an exported variable
-// icejpeg_API int nicejpeg=0;
-//
-// // This is an example of an exported function.
-// icejpeg_API int fnicejpeg(void)
-// {
-// 	return 42;
-// }
-//
-// // This is the constructor of a class that has been exported.
-// // see icejpeg.h for the class definition
-// Cicejpeg::Cicejpeg()
-// {
-// 	return;
-// }
 
 #pragma pack(push)
 #pragma pack(1)
@@ -161,9 +142,7 @@ int icejpeg_init(const char* filename)
     fread((void*)file_buf, sizeof(byte), st.st_size, file);
     
 #ifdef _JPEG_DEBUG
-    fseek(file, 0, SEEK_END);
-    long bytes_read = ftell(file);
-    printf("%ld bytes read.\n", bytes_read);
+    printf("%lld bytes read.\n", st.st_size);
     printf("%d\n", ferror(file));
 #endif
     
@@ -232,11 +211,7 @@ word fetch_word(void)
 
 word flip_byte_order(word inword)
 {
-    word temp;
-    temp = inword & 0xFF;
-    temp <<= 8;
-    temp |= (inword & 0xFF00) >> 8;
-    return temp;
+    return ((inword & 0xFF) << 8) | ((inword & 0xFF00) >> 8);
 }
 
 int gen_huffman_tables(void)
