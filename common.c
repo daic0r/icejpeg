@@ -1,12 +1,12 @@
 //
-//  types.c
+//  common.c
 //  icejpeg
 //
 //  Created by Matthias Gruen on 10/01/16.
 //  Copyright © 2016 Matthias Gruen. All rights reserved.
 //
 
-#include "types.h"
+#include "common.h"
 
 byte clip(int x)
 {

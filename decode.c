@@ -4,9 +4,10 @@
 #include <memory.h>
 #include <sys/stat.h>
 #include <stdlib.h>
-#include "types.h"
+#include "common.h"
 #include "IDCT.h"
 #include "upsample.h"
+#include "decode.h"
 #include <string.h>
 
 
@@ -15,18 +16,6 @@
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 #define MAX_DC_TABLES 4
 #define MAX_AC_TABLES 4
-
-#define ERR_OK								0
-#define ERR_OPENFILE_FAILED					-1
-#define ERR_NO_JPEG							-2
-#define ERR_INVALID_MAJOR_REV				-3
-#define ERR_INVALID_JFIF_STRING				-4
-#define ERR_16BIT_DQT_NOT_SUPPORTED			-5
-#define ERR_INVALID_NUMBER_OF_COMP			-6
-#define ERR_INVALID_SEGMENT_SIZE			-7
-#define ERR_INVALID_RST_MARKER              -8
-#define ERR_SOF0_MISSING                    -9
-#define ERR_PROGRESSIVE						-10
 
 #define USE_LANCZOS_UPSAMPLING
 
@@ -177,7 +166,7 @@ int icejpeg_init(const char* filename)
     return ERR_OK;
 }
 
-int icejpeg_read(unsigned char **buffer)
+int icejpeg_read(unsigned char **buffer, int *width, int *height, int *num_components)
 {
     int err;
     while (!eoi)
@@ -188,6 +177,9 @@ int icejpeg_read(unsigned char **buffer)
     }
     
     *buffer = image;
+    *width = sof0.width;
+    *height = sof0.height;
+    *num_components = sof0.num_components;
     
     return ERR_OK;
 }
@@ -257,9 +249,6 @@ int gen_huffman_tables(void)
         // Loop over all 16 code lengths
         for (j = 0; j < 16; j++)
         {
-            // 			if (!cur_src_table->num_codes[j])
-            // 				continue;
-            
             cur_length = j+1;
             
 #ifdef _JPEG_DEBUG
@@ -968,50 +957,4 @@ void cleanup(void)
     
     free((void*)components);
     free((void*)file_buf);
-}
-
-int main(int argc, const char** argv)
-{
-
-    int err = icejpeg_init("matthias.gruen.jpg");
-        
-    printf("Err = %d\n", err);
-    
-	if (err == -1)
-	{
-		printf("File couldn't be opened!\n");
-		return err;
-	}
-
-    byte *my_image = 0;
-    
-    err = icejpeg_read(&my_image);
-    
-	if (err != ERR_OK)
-	{
-		printf("Error parsing JPEG file!\n");
-		if (err == ERR_PROGRESSIVE)
-		{
-			printf("Reason: Progressive JPEGs not supported!\n");
-		}
-		return err;
-	}
-
-    FILE *f = fopen("ich_willem.ppm", "wb");
-    if (!f) {
-        printf("Error opening the output file.\n");
-        return 1;
-    }
-    fprintf(f, "P%d\n%d %d\n255\n", sof0.num_components == 3 ? 6 : 5 , sof0.width, sof0.height);
-    fwrite(my_image, 1, (sof0.width * sof0.height) * sof0.num_components, f);
-    fclose(f);
-    
-	free((void*)my_image);
-
-	icejpeg_cleanup();
-    
-    printf("Done.");
-    
-    return 0;
-
 }

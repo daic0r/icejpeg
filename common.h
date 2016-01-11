@@ -1,13 +1,13 @@
 //
-//  types.h
+//  common.h
 //  icejpeg
 //
 //  Created by Matthias Gruen on 07/01/16.
 //  Copyright © 2016 Matthias Gruen. All rights reserved.
 //
 
-#ifndef types_h
-#define types_h
+#ifndef common_h
+#define common_h
 
 #define CF(x) clip((((x) + 64) >> 7))
 
@@ -30,4 +30,4 @@ struct jpeg_component
 
 byte clip(int x);
 
-#endif /* types_h */
+#endif /* common_h */

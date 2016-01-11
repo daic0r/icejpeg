@@ -1,7 +1,7 @@
 #ifndef _UPSAMPLE_H
 #define _UPSAMPLE_H
 
-#include "types.h"
+#include "common.h"
 
 void upsampleBicubicH(struct jpeg_component *component);
 void upsampleBicubicV(struct jpeg_component *component);
