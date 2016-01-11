@@ -26,6 +26,7 @@
 #define ERR_INVALID_SEGMENT_SIZE			-7
 #define ERR_INVALID_RST_MARKER              -8
 #define ERR_SOF0_MISSING                    -9
+#define ERR_PROGRESSIVE						-10
 
 #define USE_LANCZOS_UPSAMPLING
 
@@ -801,31 +802,43 @@ int upsample(void)
 int create_image(void)
 {
     // put image together
-    image = (byte*) malloc((sof0.width * sof0.height) * 3);
+    image = (byte*) malloc((sof0.width * sof0.height) * sof0.num_components);
     
-    int x, y;
-    byte *curImage = image;
-    byte *py = components[0].pixels;
-    byte *pcb = components[1].pixels;
-    byte *pcr = components[2].pixels;
-    for (y = 0; y < sof0.height; y++)
-    {
-        for (x = 0; x < sof0.width; x++)
-        {
-            register int cr = pcr[x] - 128;
-            register int cb = pcb[x] - 128;
-            register int y = py[x] << 7;
-            
-            // all conversion constants have been multiplied by 128
-            *curImage++ = CF(y + 179 * cr);
-            *curImage++ = CF(y - 44 * cb - 91 * cr);
-            *curImage++ = CF(y + 227 * cb);
-        }
-        py += components[0].stride;
-        pcb += components[1].stride;
-        pcr += components[2].stride;
-    }
-    
+	if (sof0.num_components == 3)
+	{
+		int x, y;
+		byte *curImage = image;
+		byte *py = components[0].pixels;
+		byte *pcb = components[1].pixels;
+		byte *pcr = components[2].pixels;
+		for (y = 0; y < sof0.height; y++)
+		{
+			for (x = 0; x < sof0.width; x++)
+			{
+				register int cr = pcr[x] - 128;
+				register int cb = pcb[x] - 128;
+				register int y = py[x] << 7;
+
+				// all conversion constants have been multiplied by 128
+				*curImage++ = CF(y + 179 * cr);
+				*curImage++ = CF(y - 44 * cb - 91 * cr);
+				*curImage++ = CF(y + 227 * cb);
+			}
+			py += components[0].stride;
+			pcb += components[1].stride;
+			pcr += components[2].stride;
+		}
+	}
+	else
+	if (sof0.num_components == 1)
+	{
+		int y = 0;
+		for (; y < sof0.height; y++)
+		{
+			memcpy(image + (y * sof0.width), components[0].pixels + (y * components[0].stride), sof0.width);
+		}
+	}
+
     return ERR_OK;
 }
 
@@ -870,7 +883,21 @@ int process_segment(void)
             err = upsample();
             err = create_image();
             break;
-        default:
+		case 0xFFC1:
+		case 0xFFC2:
+		case 0xFFC3:
+		case 0xFFC5:
+		case 0xFFC6:
+		case 0xFFC7:
+		case 0xFFC9:
+		case 0xFFCA:
+		case 0xFFCB:
+		case 0xFFCD:
+		case 0xFFCE:
+		case 0xFFCF:
+			err = ERR_PROGRESSIVE;
+			break;
+		default:
             printf("Skipping unknown segment %X\n", marker & 0xFF);
             buf_pos += cur_segment_len - 2;
             err = ERR_OK;
@@ -946,29 +973,45 @@ void cleanup(void)
 int main(int argc, const char** argv)
 {
 
-        int errno = icejpeg_init("huff_simple0.jpg");
+    int err = icejpeg_init("matthias.gruen.jpg");
         
-        printf("Err = %d\n", errno);
+    printf("Err = %d\n", err);
     
-        byte *my_image = 0;
+	if (err == -1)
+	{
+		printf("File couldn't be opened!\n");
+		return err;
+	}
+
+    byte *my_image = 0;
     
-        errno = icejpeg_read(&my_image);
+    err = icejpeg_read(&my_image);
     
-    FILE *f = fopen("huff_simple0.ppm", "wb");
+	if (err != ERR_OK)
+	{
+		printf("Error parsing JPEG file!\n");
+		if (err == ERR_PROGRESSIVE)
+		{
+			printf("Reason: Progressive JPEGs not supported!\n");
+		}
+		return err;
+	}
+
+    FILE *f = fopen("ich_willem.ppm", "wb");
     if (!f) {
         printf("Error opening the output file.\n");
         return 1;
     }
-    fprintf(f, "P%d\n%d %d\n255\n", 6, sof0.width, sof0.height);
-    fwrite(my_image, 1, (sof0.width * sof0.height) * 3, f);
+    fprintf(f, "P%d\n%d %d\n255\n", sof0.num_components == 3 ? 6 : 5 , sof0.width, sof0.height);
+    fwrite(my_image, 1, (sof0.width * sof0.height) * sof0.num_components, f);
     fclose(f);
     
-        free((void*) my_image);
-    
-        icejpeg_cleanup();
+	free((void*)my_image);
+
+	icejpeg_cleanup();
     
     printf("Done.");
     
-        return 0;
+    return 0;
 
 }
