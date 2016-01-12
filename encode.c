@@ -1,5 +1,6 @@
 #include "encode.h"
 #include "common.h"
+#include "DCT.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -23,6 +24,17 @@
 
 const int color_conversion_coeff[3][4] = { { YR, YG, YB, 0 }, { CBR, CBG, CBB, 128 }, { CRR, CRG, CRB, 128} };
 
+const byte jpeg_zz[] = {
+    0, 1, 5, 6, 14, 15, 27, 28,
+    2, 4, 7, 13, 16, 26, 29, 42,
+    3, 8, 12, 17, 25, 30, 41, 43,
+    9, 11, 18, 24, 31, 40, 44, 53,
+    10, 19, 23, 32, 39, 45, 52, 54,
+    20, 22, 33, 38, 46, 51, 55, 60,
+    21, 34, 37, 47, 50, 56, 59, 61,
+    35, 36, 48, 49, 57, 58, 62, 63
+};
+
 struct __ice_env
 {
 	const char outfile[40];
@@ -32,9 +44,26 @@ struct __ice_env
 	int max_sx, max_sy;
 	int num_mcu_x, num_mcu_y;
 	int mcu_width, mcu_height;
+    int cur_mcu_x, cur_mcu_y;
+    int block[64];
 } iceenv;
 
 struct jpeg_encode_component icecomp[3];
+
+static void print_block(int block[64])
+{
+    int x, y;
+    for (y = 0; y < 8; y++)
+    {
+        for (x = 0; x < 8; x++)
+        {
+            printf("%d ", block[(y * 8) + x]);
+        }
+        printf("\n");
+    }
+    
+    printf("\n");
+}
 
 static void generate_constants()
 {
@@ -64,7 +93,7 @@ static void generate_constants()
 
 }
 
-static void convert_and_downsample()
+static void downsample()
 {
 	int i = 0;
 	int *tmpimage = 0;
@@ -100,38 +129,41 @@ static void convert_and_downsample()
 			int last_val = *(outpixels - 1);
 			// fill rest of the buffer with value of rightmost pixel
 			while (outpixels < start_index + icecomp[i].stride)
+            {
 				*outpixels++ = last_val;
+            }
 		}
 
-		int *tmpimage2 = icecomp[i].pixels;
+		int *srcimage2 = icecomp[i].pixels;
         int new_height = ((icecomp[i].sy << 3) * iceenv.num_mcu_y);
 		icecomp[i].pixels = (int*)malloc(icecomp[i].stride * new_height * sizeof(int));
 
 		outpixels = icecomp[i].pixels;
-		int *cur_tmpimage = 0;
+		int *cur_srcimage = 0;
 
 #ifdef _JPEG_ENCODER_DEBUG
         int min_val = INT_MAX, max_val = INT_MIN;
 #endif
         
-		// ... and now the columns
+
+        // ... and now the columns
+        int step_y = iceenv.max_sy / icecomp[i].sy;
 		for (x = 0; x < icecomp[i].width; x++)
 		{
-			cur_tmpimage = tmpimage2 + x;
+			cur_srcimage = srcimage2 + x;
 			outpixels = icecomp[i].pixels + x;
-			int* start_index = outpixels + x;
-			int step_y = iceenv.max_sy / icecomp[i].sy;
+			int* start_index = outpixels;
 			for (y = 0; y < icecomp[i].height; y += step_y)
 			{
 				register int pixel_avg = 0;
 				int y2;
 				for (y2 = 0; y2 < step_y; y2++)
 				{
-					pixel_avg += *cur_tmpimage;
-					cur_tmpimage += icecomp[i].stride;
+					pixel_avg += *cur_srcimage;
+					cur_srcimage += icecomp[i].stride;
 				}
 				pixel_avg /= step_y;
-                // Downshift
+                // Level shift
                 pixel_avg -= 128;
                 *outpixels = pixel_avg;
 #ifdef _JPEG_ENCODER_DEBUG
@@ -140,7 +172,6 @@ static void convert_and_downsample()
                 if (pixel_avg > max_val)
                     max_val = pixel_avg;
 #endif
-//				pixel_avg = clip(pixel_avg);
 				outpixels += icecomp[i].stride;
 			}
 			int last_val = *(outpixels - icecomp[i].stride);
@@ -158,8 +189,70 @@ static void convert_and_downsample()
         printf("Component: %d (%dx%d), Min value = %d, Max value = %d\n", i, icecomp[i].width , icecomp[i].height, min_val, max_val);
 #endif
         
-		free(tmpimage2);
+		free(srcimage2);
 	}
+}
+
+static int encode_du(int comp, int du_x, int du_y)
+{
+    int *buffer = 0;
+    int duOriginIndex = ((iceenv.cur_mcu_y * (icecomp[comp].sy << 3) + (du_y << 3)) * icecomp[comp].stride) + (iceenv.cur_mcu_x * (icecomp[comp].sx << 3) + (du_x << 3));
+    
+    // Create 8x8 block
+    int x, y;
+    for (y = 0; y < 8; y++)
+    {
+        buffer = &icecomp[comp].pixels[duOriginIndex + (icecomp[comp].stride * y)];
+        memcpy(&iceenv.block[y * 8], buffer, 8 * sizeof(int));
+    }
+    
+    // Perform DCT
+    fdct(iceenv.block);
+    
+    // Zigzag reordering
+    int block[64];
+    for (x = 0; x < 64; x++)
+        block[jpeg_zz[x]] = iceenv.block[x];
+    memcpy(iceenv.block, block, 64 * sizeof(int));
+    
+   
+    // TODO: Quantization
+    
+    return ERR_OK;
+}
+
+static int encode(void)
+{
+    int i, sx, sy;
+    
+    // Encode every MCU
+    for (;;)
+    {
+        for (i = 0; i < iceenv.num_components; i++)
+        {
+            for (sy = 0; sy < icecomp[i].sy; sy++)
+            {
+                for (sx = 0; sx < icecomp[i].sx; sx++)
+                {
+                    // Encode single DU
+                    
+                    encode_du(i, sx, sy);
+                    iceenv.cur_mcu_x = iceenv.num_mcu_x;
+                    iceenv.cur_mcu_y = iceenv.num_mcu_y;
+                }
+            }
+        }
+        iceenv.cur_mcu_x++;
+        if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
+        {
+            iceenv.cur_mcu_x = 0;
+            iceenv.cur_mcu_y++;
+            if (iceenv.cur_mcu_y == iceenv.num_mcu_y)
+                break;
+        }
+    }
+    
+    return ERR_OK;
 }
 
 int icejpeg_encode_init(const char *filename, unsigned char *image, int width, int height, int y_samp, int cb_samp, int cr_samp)
@@ -184,6 +277,8 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 	iceenv.image = (int *)malloc(width * height * iceenv.num_components * sizeof(int));
 	if (!iceenv.image)
 		return ERR_OUT_OF_MEMORY;
+    
+    // Copy image to our buffer and perform YCbCr->RGB conversion
     int x, y;
     int *cur_image = iceenv.image;
     for (y = 0; y < height; y++)
@@ -237,8 +332,9 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 
 int icejpeg_write(void)
 {
-	convert_and_downsample();
-
+	downsample();
+    encode();
+    
 	return 0;
 }
 
