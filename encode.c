@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
+
+#define _JPEG_ENCODER_DEBUG
 
 #define DESCALE(x) (((x) + (PRECISION >> 1)) >> PRECISION)
 
@@ -12,18 +15,18 @@
 
 #define CBR -43
 #define CBG -85
-#define CBB -128
+#define CBB 128
 
 #define CRR 128
 #define CRG -107
 #define CRB -21
 
-const int color_conversion_coeff[3][3] = { { YR, YG, YB}, { CBR, CBG, CBB }, { CRR, CRG, CRB} };
+const int color_conversion_coeff[3][4] = { { YR, YG, YB, 0 }, { CBR, CBG, CBB, 128 }, { CRR, CRG, CRB, 128} };
 
 struct __ice_env
 {
 	const char outfile[40];
-	byte *image;
+	int *image;
 	int width, height;
 	int num_components;
 	int max_sx, max_sy;
@@ -61,18 +64,18 @@ static void generate_constants()
 
 }
 
-static void downsample()
+static void convert_and_downsample()
 {
 	int i = 0;
-	byte *tmpimage = 0;
+	int *tmpimage = 0;
 	int *outpixels = 0;
 	for (i = 0; i < iceenv.num_components; i++)
 	{
-		icecomp[i].pixels = (int*)malloc(icecomp[i].stride * icecomp[i].height * sizeof(int));
+		icecomp[i].pixels = (int*)malloc(icecomp[i].stride * iceenv.height * sizeof(int));
 
 		int x, y;
 		// Go to correct start component
-		tmpimage = iceenv.image;
+		tmpimage = iceenv.image + i;
 
 		outpixels = icecomp[i].pixels;
 
@@ -84,15 +87,15 @@ static void downsample()
 			int step_x = iceenv.max_sx / icecomp[i].sx;
 			for (x = 0; x < iceenv.width; x += step_x)
 			{
-				int pixel_avg = 0;
+				register int pixel_avg = 0;
 				int x2;
 				for (x2 = 0; x2 < step_x; x2++)
 				{
-					pixel_avg += (color_conversion_coeff[i][0] * tmpimage[0]) + (color_conversion_coeff[i][1] * tmpimage[1]) + (color_conversion_coeff[i][2] * tmpimage[2]);
-					tmpimage += iceenv.num_components;
+                    pixel_avg += *tmpimage;
+                    tmpimage += iceenv.num_components;
 				}
 				pixel_avg /= step_x;
-				*outpixels++ = DESCALE(pixel_avg);
+				*outpixels++ = pixel_avg;
 			}
 			int last_val = *(outpixels - 1);
 			// fill rest of the buffer with value of rightmost pixel
@@ -101,13 +104,16 @@ static void downsample()
 		}
 
 		int *tmpimage2 = icecomp[i].pixels;
-		//tmpimage = icecomp[i].pixels;
-		icecomp[i].height = (icecomp[i].sy << 3) * iceenv.num_mcu_y;
-		icecomp[i].pixels = (int*)malloc(icecomp[i].stride * icecomp[i].height * sizeof(int));
+        int new_height = ((icecomp[i].sy << 3) * iceenv.num_mcu_y);
+		icecomp[i].pixels = (int*)malloc(icecomp[i].stride * new_height * sizeof(int));
 
 		outpixels = icecomp[i].pixels;
 		int *cur_tmpimage = 0;
 
+#ifdef _JPEG_ENCODER_DEBUG
+        int min_val = INT_MAX, max_val = INT_MIN;
+#endif
+        
 		// ... and now the columns
 		for (x = 0; x < icecomp[i].width; x++)
 		{
@@ -115,9 +121,9 @@ static void downsample()
 			outpixels = icecomp[i].pixels + x;
 			int* start_index = outpixels + x;
 			int step_y = iceenv.max_sy / icecomp[i].sy;
-			for (y = 0; y < iceenv.height; y += step_y)
+			for (y = 0; y < icecomp[i].height; y += step_y)
 			{
-				int pixel_avg = 0;
+				register int pixel_avg = 0;
 				int y2;
 				for (y2 = 0; y2 < step_y; y2++)
 				{
@@ -125,18 +131,33 @@ static void downsample()
 					cur_tmpimage += icecomp[i].stride;
 				}
 				pixel_avg /= step_y;
-				pixel_avg = clip(pixel_avg);
+                // Downshift
+                pixel_avg -= 128;
+                *outpixels = pixel_avg;
+#ifdef _JPEG_ENCODER_DEBUG
+                if (pixel_avg < min_val)
+                    min_val = pixel_avg;
+                if (pixel_avg > max_val)
+                    max_val = pixel_avg;
+#endif
+//				pixel_avg = clip(pixel_avg);
 				outpixels += icecomp[i].stride;
 			}
 			int last_val = *(outpixels - icecomp[i].stride);
 			// fill rest of the buffer with value of bottommost pixel
-			while (outpixels < start_index + (icecomp[i].stride * (icecomp[i].height - 1)))
+			while (outpixels < start_index + (icecomp[i].stride * (new_height - 1)))
 			{
 				*outpixels = last_val;
 				outpixels += icecomp[i].stride;
 			}
 		}
-
+        
+        icecomp[i].height = new_height;
+        
+#ifdef _JPEG_ENCODER_DEBUG
+        printf("Component: %d (%dx%d), Min value = %d, Max value = %d\n", i, icecomp[i].width , icecomp[i].height, min_val, max_val);
+#endif
+        
 		free(tmpimage2);
 	}
 }
@@ -160,10 +181,25 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 	iceenv.width = width;
 	iceenv.height = height;
 	iceenv.max_sx = iceenv.max_sy = 0;
-	iceenv.image = (byte *)malloc(width * height * iceenv.num_components);
+	iceenv.image = (int *)malloc(width * height * iceenv.num_components * sizeof(int));
 	if (!iceenv.image)
 		return ERR_OUT_OF_MEMORY;
-	memcpy(iceenv.image, image, width * height * iceenv.num_components);
+    int x, y;
+    int *cur_image = iceenv.image;
+    for (y = 0; y < height; y++)
+    {
+        for (x = 0; x < width; x++)
+        {
+            register int y = DESCALE(YR * image[0] + YG * image[1] + YB * image[2]);
+            register int cb = DESCALE(CBR * image[0] + CBG * image[1] + CBB * image[2]) + 128;
+            register int cr = DESCALE(CRR * image[0] + CRG * image[1] + CRB * image[2]) + 128;
+     
+            *cur_image++ = y;
+            *cur_image++ = cb;
+            *cur_image++ = cr;
+            image += 3;
+        }
+    }
 
 	icecomp[0].sx = y_samp;
 	icecomp[0].sy = y_samp;
@@ -201,7 +237,7 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 
 int icejpeg_write(void)
 {
-	downsample();
+	convert_and_downsample();
 
 	return 0;
 }

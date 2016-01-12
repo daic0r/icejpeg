@@ -54,6 +54,6 @@ struct jpeg_encode_component
 
 
 byte clip(int x);
-int round(float x);
+int rnd(float x);
 
 #endif /* common_h */

@@ -18,9 +18,9 @@ byte clip(int x)
     return x;
 }
 
-int round(float x)
+int rnd(float x)
 {
 	if (x < 0.0f)
-		return -round(-x);
+		return -rnd(-x);
 	return (int)(x + 0.5f);
 }
