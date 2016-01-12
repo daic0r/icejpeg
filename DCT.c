@@ -21,7 +21,7 @@
  * possible to arrange the computation so that many of the multiplies are
  * simple scalings of the final outputs.  These multiplies can then be
  * folded into the multiplications or divisions by the JPEG quantization
- * table entries.  The AA&N method leaves only 5 multiplies and 29 adds
+ * table entries.  The AA&N method leaves only 5 multiplies and 29 ad;ds
  * to be done in the DCT itself.
  * The primary disadvantage of this method is that with fixed-point math,
  * accuracy is lost due to imprecise representation of the scaled

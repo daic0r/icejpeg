@@ -17,3 +17,10 @@ byte clip(int x)
     
     return x;
 }
+
+int round(float x)
+{
+	if (x < 0.0f)
+		return -round(-x, 0.5);
+	return (int)(x + 0.5f);
+}

@@ -120,7 +120,7 @@ void cleanup(void);
 int process_segment(void);
 void cleanup_dht(void);
 
-int icejpeg_init(const char* filename)
+int icejpeg_decode_init(const char* filename)
 {
     file = fopen(filename, "rb");
     if (!file)
