@@ -22,6 +22,7 @@
 #define ERR_INVALID_RST_MARKER              -8
 #define ERR_SOF0_MISSING                    -9
 #define ERR_PROGRESSIVE						-10
+#define ERR_OUT_OF_MEMORY					-11
 
 typedef unsigned char byte;
 typedef unsigned short word;
@@ -39,6 +40,18 @@ struct jpeg_component
     byte *pixels;
     int prev_dc;
 };
+
+struct jpeg_encode_component
+{
+	byte id_dht;
+	int width, height;
+	int stride;
+	int sx, sy;
+	byte qt_table;
+	int *pixels;
+	int prev_dc;
+};
+
 
 byte clip(int x);
 int round(float x);
