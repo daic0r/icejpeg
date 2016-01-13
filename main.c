@@ -16,7 +16,7 @@
 
 int main(int argc, const char** argv)
 {
-    const char * basename = "matthias.gruen";
+    const char * basename = "jessica";
     
     char jpegfile[40];
     strcpy(jpegfile, basename);
