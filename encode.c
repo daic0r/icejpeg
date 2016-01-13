@@ -8,6 +8,7 @@
 
 #define _JPEG_ENCODER_DEBUG
 
+#define UPSCALE(x) ((x) << PRECISION)
 #define DESCALE(x) (((x) + (PRECISION >> 1)) >> PRECISION)
 
 #define YR 77
@@ -35,6 +36,42 @@ const byte jpeg_zz[] = {
     35, 36, 48, 49, 57, 58, 62, 63
 };
 
+const byte jpeg_qtbl_luminance[] = {
+	16, 11, 10, 16, 124, 140, 151, 161,
+	12, 12, 14, 19, 126, 158, 160, 155,
+	14, 13, 16, 24, 140, 157, 169, 156,
+	14, 17, 22, 29, 151, 187, 180, 162,
+	18, 22, 37, 56, 168, 109, 103, 177,
+	24, 35, 55, 64, 181, 104, 113, 192,
+	49, 64, 78, 87, 103, 121, 120, 101,
+	72, 92, 95, 98, 112, 100, 103, 199
+};
+
+const byte jpeg_qtbl_chrominance[] = {
+	17, 18, 24, 47, 99, 99, 99, 99,
+	18, 21, 26, 66, 99, 99, 99, 99,
+	24, 26, 56, 99, 99, 99, 99, 99,
+	47, 66, 99, 99, 99, 99, 99, 99,
+	99, 99, 99, 99, 99, 99, 99, 99,
+	99, 99, 99, 99, 99, 99, 99, 99,
+	99, 99, 99, 99, 99, 99, 99, 99,
+	99, 99, 99, 99, 99, 99, 99, 99
+};
+
+const byte* jpeg_qtbl_selector[] = {
+	jpeg_qtbl_luminance, jpeg_qtbl_chrominance, jpeg_qtbl_chrominance
+};
+
+struct jpeg_bit_string {
+	byte length;
+	int bits;
+};
+
+struct jpeg_zrlc {
+	byte info; // bit 7-4: number of zeros, bit 3-0: category
+	struct jpeg_bit_string value;
+};
+
 struct __ice_env
 {
 	const char outfile[40];
@@ -46,7 +83,22 @@ struct __ice_env
 	int mcu_width, mcu_height;
     int cur_mcu_x, cur_mcu_y;
     int block[64];
+	int dcpred;
 } iceenv;
+
+
+struct jpeg_encode_component
+{
+	byte id_dht;
+	int width, height;
+	int stride;
+	int sx, sy;
+	byte qt_table;
+	int *pixels;
+	int prev_dc;
+	struct jpeg_zrlc *rlc;
+	int rlc_index;
+};
 
 struct jpeg_encode_component icecomp[3];
 
@@ -67,17 +119,17 @@ static void print_block(int block[64])
 
 static void generate_constants()
 {
-	int y_r = round(0.299f * (1 << PRECISION));
-	int y_g = round(0.587f * (1 << PRECISION));
-	int y_b = round(0.114f * (1 << PRECISION));
+	int y_r = rnd(0.299f * (1 << PRECISION));
+	int y_g = rnd(0.587f * (1 << PRECISION));
+	int y_b = rnd(0.114f * (1 << PRECISION));
 
-	int cb_r = round(-0.1687f * (1 << PRECISION));
-	int cb_g = round(-0.3313f * (1 << PRECISION));
-	int cb_b = round(0.5f * (1 << PRECISION));
+	int cb_r = rnd(-0.1687f * (1 << PRECISION));
+	int cb_g = rnd(-0.3313f * (1 << PRECISION));
+	int cb_b = rnd(0.5f * (1 << PRECISION));
 
-	int cr_r = round(0.5f * (1 << PRECISION));
-	int cr_g = round(-0.4187f * (1 << PRECISION));
-	int cr_b = round(-0.0813f * (1 << PRECISION));
+	int cr_r = rnd(0.5f * (1 << PRECISION));
+	int cr_g = rnd(-0.4187f * (1 << PRECISION));
+	int cr_b = rnd(-0.0813f * (1 << PRECISION));
 
 	printf("%d\n", y_r);
 	printf("%d\n", y_g);
@@ -91,6 +143,25 @@ static void generate_constants()
 	printf("%d\n", cr_g);
 	printf("%d\n", cr_b);
 
+}
+
+// Find the number of bits necessary to represent an int value
+inline byte find_category(int num)
+{
+	byte category = 0;
+	while ((num < ((-1 << category) + 1)) || (num > (1 << category) - 1))
+		category++;
+
+	return category;
+}
+
+// Get the bit coding of an int value
+inline int get_bit_coding(int num, byte category)
+{
+	register int code = num & ((1 << category) - 1);
+	if (num < 0)
+		code--;
+	return code;
 }
 
 static void downsample()
@@ -191,6 +262,8 @@ static void downsample()
         
 		free(srcimage2);
 	}
+	free(iceenv.image);
+	iceenv.image = 0;
 }
 
 static int encode_du(int comp, int du_x, int du_y)
@@ -210,13 +283,80 @@ static int encode_du(int comp, int du_x, int du_y)
     fdct(iceenv.block);
     
     // Zigzag reordering
-    int block[64];
+    int *block = (int*) malloc(64 * sizeof(int));
     for (x = 0; x < 64; x++)
         block[jpeg_zz[x]] = iceenv.block[x];
     memcpy(iceenv.block, block, 64 * sizeof(int));
+	
+	free(block);
+	block = 0;
     
-   
-    // TODO: Quantization
+    // Quantization
+	for (y = 0; y < 8; y++)
+	{
+		for (x = 0; x < 8; x++)
+		{
+			register int value = iceenv.block[(y * 8) + x];
+			// Right-shift rounds towards negative infinity, so we're gonna do our
+			// computations with positive numbers and then put the sign back
+			// after we're done
+ 			int sign = value < 0 ? -1 : 1;
+			if (sign < 0)
+ 				value *= sign;
+			value = UPSCALE(value);
+			value /= jpeg_qtbl_selector[comp][(y * 8) + x];
+			iceenv.block[(y * 8) + x] = sign * DESCALE(value);
+		}
+	}
+
+	// Do Zero Run Length Coding for this block
+	// After all MCUs have been processed, the Huffman tables will be
+	// generated based on these values
+	x = 0;
+
+	int* end_pointer = iceenv.block + 64;
+	while (!end_pointer[-1])
+		end_pointer--;
+
+	block = iceenv.block;
+
+	do
+	{
+		byte zeros = 0;
+
+		// count contiguous zeros, but stop at 16 because
+		// that's the most consecutive zeros than can be encoded
+		while (!(*block) && zeros < 15)
+		{
+			zeros++;
+			block++;
+		}
+		icecomp[comp].rlc[icecomp[comp].rlc_index].info = zeros << 4;
+
+		register int value = *block;
+		byte category = find_category(value);
+		icecomp[comp].rlc[icecomp[comp].rlc_index].info |= category;
+
+		icecomp[comp].rlc[icecomp[comp].rlc_index].value.length = category;
+		icecomp[comp].rlc[icecomp[comp].rlc_index].value.bits = get_bit_coding(value, category);
+
+		icecomp[comp].rlc_index++;
+		block++;
+	} while (block != end_pointer);
+
+	// Only put an EOB if we don't have a zero run at the end
+	if (end_pointer != iceenv.block + 64)
+	{
+		icecomp[comp].rlc[icecomp[comp].rlc_index].info = 0; // EOB
+
+		icecomp[comp].rlc[icecomp[comp].rlc_index].value.length = 0;
+		icecomp[comp].rlc[icecomp[comp].rlc_index].value.bits = 0;
+
+		icecomp[comp].rlc_index++;
+	}
+
+
+	print_block(iceenv.block);
     
     return ERR_OK;
 }
@@ -224,7 +364,13 @@ static int encode_du(int comp, int du_x, int du_y)
 static int encode(void)
 {
     int i, sx, sy;
-    
+
+	for (i = 0; i < iceenv.num_components; i++)
+	{
+		icecomp[i].rlc = (struct jpeg_zrlc*) malloc(sizeof(struct jpeg_zrlc) * 0xFFFF);
+		memset(icecomp[i].rlc, 0, sizeof(struct jpeg_zrlc) * 0xFFFF);
+	}
+
     // Encode every MCU
     for (;;)
     {
@@ -237,11 +383,11 @@ static int encode(void)
                     // Encode single DU
                     
                     encode_du(i, sx, sy);
-                    iceenv.cur_mcu_x = iceenv.num_mcu_x;
-                    iceenv.cur_mcu_y = iceenv.num_mcu_y;
+
                 }
             }
         }
+		break;
         iceenv.cur_mcu_x++;
         if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
         {
@@ -257,7 +403,7 @@ static int encode(void)
 
 int icejpeg_encode_init(const char *filename, unsigned char *image, int width, int height, int y_samp, int cb_samp, int cr_samp)
 {
-	memset(icecomp, 0, sizeof(struct jpeg_component) * 3);
+	memset(icecomp, 0, sizeof(struct jpeg_encode_component) * 3);
 
 	strcpy(iceenv.outfile, filename);
 	if ((!cb_samp && cr_samp) ||
@@ -357,4 +503,10 @@ void icejpeg_encode_cleanup()
 
 	if (iceenv.image)
 		free(iceenv.image);
+
+	for (i = 0; i < iceenv.num_components; i++)
+	{
+		if (icecomp[i].rlc)
+			free(icecomp[i].rlc);
+	}
 }

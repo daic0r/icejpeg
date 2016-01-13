@@ -41,18 +41,6 @@ struct jpeg_component
     int prev_dc;
 };
 
-struct jpeg_encode_component
-{
-	byte id_dht;
-	int width, height;
-	int stride;
-	int sx, sy;
-	byte qt_table;
-	int *pixels;
-	int prev_dc;
-};
-
-
 byte clip(int x);
 int rnd(float x);
 
