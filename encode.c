@@ -97,9 +97,15 @@ struct jpeg_encode_component
 	int prev_dc;
 	struct jpeg_zrlc **rlc;
 	int rlc_index;
-    int dc_code_count[16];
-    int ac_code_count[256];
-    long rlc_count;
+    int dc_code_count[17];
+    int ac_code_count[257];
+	// Which code has what length?
+	byte dc_code_lengths[17];
+	byte ac_code_lengths[257];
+	// Number of codes of each length
+	int dc_code_length_count[32];
+	int ac_code_length_count[32];
+	long rlc_count;
 };
 
 struct jpeg_encode_component icecomp[3];
@@ -187,7 +193,7 @@ static void downsample()
 			//outpixels = icecomp[i].pixels + (y * icecomp[i].stride);
 			int* start_index = outpixels;
 			int step_x = iceenv.max_sx / icecomp[i].sx;
-			for (x = 0; x < iceenv.width; x += step_x)
+			for (x = 0; x < iceenv.width - (step_x-1); x += step_x)
 			{
 				register int pixel_avg = 0;
 				int x2;
@@ -226,7 +232,7 @@ static void downsample()
 			cur_srcimage = srcimage2 + x;
 			outpixels = icecomp[i].pixels + x;
 			int* start_index = outpixels;
-			for (y = 0; y < icecomp[i].height; y += step_y)
+			for (y = 0; y < icecomp[i].height - (step_y-1); y += step_y)
 			{
 				register int pixel_avg = 0;
 				int y2;
@@ -331,7 +337,7 @@ static int encode_du(int comp, int du_x, int du_y)
 
 		// count contiguous zeros, but stop at 16 because
 		// that's the most consecutive zeros than can be encoded
-		while (!(*block) && zeros < 15)
+		while (block > iceenv.block && !(*block) && zeros < 15)
 		{
 			zeros++;
 			block++;
@@ -385,9 +391,9 @@ static int encode_du(int comp, int du_x, int du_y)
 	}
 
 #ifdef _JPEG_ENCODER_DEBUG
-    if (icecomp[comp].rlc_index - start_rlc_index > 10)
-        printf("MCU: (%d,%d)[%d](%d,%d): %d indices added.\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y, icecomp[comp].rlc_index - start_rlc_index);
-    icecomp[comp].rlc_count += icecomp[comp].rlc_index - start_rlc_index;
+//     if (icecomp[comp].rlc_index - start_rlc_index > 10)
+//         printf("MCU: (%d,%d)[%d](%d,%d): %d indices added.\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y, icecomp[comp].rlc_index - start_rlc_index);
+//     icecomp[comp].rlc_count += icecomp[comp].rlc_index - start_rlc_index;
 #endif
     
     return ERR_OK;
@@ -404,8 +410,8 @@ static void get_code_stats(void)
         int j;
         int is_dc = 1;
         int du_index = 0;
-        memset(c->dc_code_count, 0, 16 * sizeof(int));
-        memset(c->ac_code_count, 0, 256 * sizeof(int));
+        memset(c->dc_code_count, 0, 17 * sizeof(int));
+        memset(c->ac_code_count, 0, 257 * sizeof(int));
         
         for (j = 0; j < count; j++)
         {
@@ -426,35 +432,283 @@ static void get_code_stats(void)
             }
         }
         
+		c->dc_code_count[16] = 1;
+		c->ac_code_count[256] = 1;
+
 #ifdef _JPEG_ENCODER_DEBUG
         
-        printf("Stats comp #%d\n\n", i);
-        
-        for (j = 0; j < 256; j++)
-        {
-            if (c->ac_code_count[j] > 0)
-                printf("Code 0x%X: %d occurrences\n", j, c->ac_code_count[j]);
-        }
-        printf("\n");
-        printf("Final count: %ld\n", c->rlc_count);
+		if (i == 0)
+		{
+			printf("DC Stats comp #%d\n\n", i);
+
+			for (j = 0; j < 16; j++)
+			{
+				if (c->dc_code_count[j] > 0)
+					printf("Code 0x%X: %d occurrences\n", j, c->dc_code_count[j]);
+			}
+			printf("\n");
+			printf("Final count: %ld\n\n", c->rlc_count);
+		}
 #endif
     }
 }
 
-static void find_code_sizes(void)
+static void find_code_lengths(void)
 {
-    byte dc_codesizes[16];
-    int others[16];
+    byte dc_codelengths[17];
+	byte ac_codelengths[257];
+    int dc_others[17], ac_others[257];
     
-    memset(dc_codesizes, 0, 16);
-    memset(others, -1, sizeof(int) * 16);
-    
-    int i = 0;
-    for (i = 0; i < 16; i++)
-    {
-        
-    }
-    
+	// Gather statistics about code occurrences
+	get_code_stats();
+
+	struct
+	{
+		int code;
+		int freq;
+	} v[2];
+
+	int i;
+
+	for (i = 0; i < iceenv.num_components; i++)
+	{
+		int dcac = 0;
+
+		// pointers to current array
+		byte *codelengths = 0;
+		int *others = 0;
+		int *codecount = 0;
+		// Do DC and AC
+		for (dcac = 0; dcac < 2; dcac++)
+		{
+			struct jpeg_encode_component *c = &icecomp[i];
+
+			codelengths = !dcac ? dc_codelengths : ac_codelengths;
+			others = !dcac ? dc_others : ac_others;
+			codecount = !dcac ? c->dc_code_count : c->ac_code_count;
+			int numcodes = !dcac ? 17 : 257;
+
+			memset(codelengths, 0, numcodes);
+			memset(others, -1, sizeof(int) * numcodes);
+
+			// Proceed according to JPEG Standard Annex K, Figure K.1
+			do
+			{
+				int  j;
+				// Find least FREQ(V1) and FREQ(V2)
+				for (j = 0; j < 2; j++)
+				{
+					// Find rarest code in DC frequency count table
+					v[j].code = -1;
+					v[j].freq = INT_MAX;
+
+					int code_index = 0;
+					for (code_index = 0; code_index < numcodes; code_index++)
+					{
+						if (j == 1 && code_index == v[0].code)
+							continue;
+						if (codecount[code_index] && codecount[code_index] <= v[j].freq && code_index > v[j].code)
+						{
+							v[j].code = code_index;
+							v[j].freq = codecount[code_index];
+						}
+					}
+				}
+
+				// No V2? Break
+				if (v[1].freq == INT_MAX)
+					break;
+
+				codecount[v[0].code] += codecount[v[1].code];
+				codecount[v[1].code] = 0;
+
+				while (1)
+				{
+					codelengths[v[0].code] += 1;
+
+					if (others[v[0].code] == -1)
+						break;
+
+					v[0].code = others[v[0].code];
+				}
+
+				others[v[0].code] = v[1].code;
+
+				while (1)
+				{
+					codelengths[v[1].code] += 1;
+
+					if (others[v[1].code] == -1)
+						break;
+
+					v[1].code = others[v[1].code];
+				}
+			} while (others[v[1].code] == -1);
+
+			// AT THIS POINT WE HAVE THE CODE LENGTH FOR EACH SYMBOL STORED IN codelengths
+
+			memcpy(!dcac ? c->dc_code_lengths : c->ac_code_lengths, codelengths, numcodes);
+
+			// NOW WE COUNT THE NUMBER OF CODES OF EACH LENGTH
+			// WE CAN POTENTIALLY HAVE CODES OF UP TO 32 BITS AT THIS POINT
+			int num_codes_of_each_length[32];
+			memset(num_codes_of_each_length, 0, sizeof(num_codes_of_each_length));
+			int j = 0;
+			for (j = 0; j < numcodes; j++)
+			{
+				if (codelengths[j])
+					num_codes_of_each_length[codelengths[j]]++;
+			}
+
+			memcpy(!dcac ? c->dc_code_length_count : c->ac_code_length_count, num_codes_of_each_length, sizeof(num_codes_of_each_length));
+
+#ifdef _JPEG_ENCODER_DEBUG
+
+			if (i == 0 && dcac == 0)
+			{
+				//{
+					//int j = 0;
+				for (j = 0; j < numcodes; j++)
+				{
+					printf("Code size of symbol %X = %d\n", j, !dcac ? c->dc_code_lengths[j] : c->ac_code_lengths[j]);
+				}
+				printf("\n");
+				//}
+
+
+
+				for (j = 0; j < 32; j++)
+				{
+					printf("Number of codes of length %d : %d\n", j, num_codes_of_each_length[j]);
+				}
+
+			}
+#endif
+		}
+	}
+}
+
+static void limit_code_lengths()
+{
+	printf("LIMITING\n\n");
+
+	int ncomp = 0;
+	for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
+	{
+		struct jpeg_encode_component *c = &icecomp[ncomp];
+		int *code_length_count = 0;
+		int dcac = 0;
+		for (dcac = 0; dcac < 2; dcac++)
+		{
+			code_length_count = !dcac ? c->dc_code_length_count : c->ac_code_length_count;
+
+			int i = 32, j;
+			
+			while (1)
+			{
+				if (!code_length_count[i])
+				{
+					i--;
+					if (i == 16)
+					{
+						// Below 16 we work our way down until we find a code length that is used
+						while (!code_length_count[i])
+							i--;
+
+						// This will be the maximum code length in use
+						// One must be subtracted from it because the "fake" code
+						// added during
+						// c->dc_code_count[16] = 1;
+						// c->ac_code_count[256] = 1;
+						// must be removed from the count
+						code_length_count[i]--;
+
+						break;
+					}
+					else
+					{
+						continue;
+					}
+				}
+
+				j = i - 1;
+				j--;
+				while (!code_length_count[j])
+					j--;
+
+				code_length_count[i] -= 2;
+				code_length_count[i - 1]++;
+				code_length_count[j + 1] += 2;
+				code_length_count[j]--;
+			}
+
+#ifdef _JPEG_ENCODER_DEBUG
+			if (ncomp == 0 && dcac == 0)
+			{
+				int dbg = 0;
+				for (dbg = 0; dbg < 32; dbg++)
+				{
+					printf("Number of codes of length %d : %d\n", dbg, code_length_count[dbg]);
+				}
+			}
+#endif
+		}
+	}
+}
+
+static void sort_codes()
+{
+	int dc_huffval[16];
+	int ac_huffval[256];
+
+	int ncomp = 0;
+	for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
+	{
+		struct jpeg_encode_component *c = &icecomp[ncomp];
+		byte *codelengths = 0;
+		int *huffval = 0;
+		int dcac = 0;
+		int numcodes = 0;
+		for (dcac = 0; dcac < 2; dcac++)
+		{
+			codelengths = !dcac ? c->dc_code_lengths : c->ac_code_lengths;
+			huffval = !dcac ? dc_huffval : ac_huffval;
+			numcodes = !dcac ? 16 : 256;
+
+			memset(huffval, 0, sizeof(int) * numcodes);
+
+			int i = 1, j, k = 0;
+
+			while (i < 33)
+			{
+				j = 0;
+				while (j < numcodes)
+				{
+					if (codelengths[j] == i)
+						huffval[k++] = j;
+
+					j++;
+				}
+				i++;
+			}
+			
+#ifdef _JPEG_ENCODER_DEBUG
+			if (ncomp == 0 && dcac == 0)
+			{
+
+				for (j = 0; j < numcodes; j++)
+				{
+					printf("Position %d -> Code %d\n", j, huffval[j]);
+				}
+				printf("\n");
+			}
+#endif
+
+		}
+	}
+
+
+
 }
 
 static int encode(void)
@@ -579,7 +833,10 @@ int icejpeg_write(void)
 {
 	downsample();
     encode();
-    
+	find_code_lengths();
+	//limit_code_lengths();
+	sort_codes();
+
 	return 0;
 }
 
