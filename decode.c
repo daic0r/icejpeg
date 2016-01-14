@@ -84,17 +84,7 @@ struct jpeg_sof0
     byte num_components;
 } sof0;
 
-struct jpeg_dht
-{
-    byte num_codes[16];
-    byte *codes;
-} *dc_dht[MAX_DC_TABLES], *ac_dht[MAX_AC_TABLES];
-
-struct jpeg_huffman_code
-{
-    word code;
-    byte length;
-};
+struct jpeg_dht *dc_dht[MAX_DC_TABLES], *ac_dht[MAX_AC_TABLES];
 
 typedef struct jpeg_huffman_code** jpeg_huffman_table;	// array of pointers to a huffman code
 

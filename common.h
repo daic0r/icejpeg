@@ -41,6 +41,18 @@ struct jpeg_component
     int prev_dc;
 };
 
+struct jpeg_huffman_code
+{
+    word code;
+    byte length;
+};
+
+struct jpeg_dht
+{
+    byte num_codes[16];
+    byte *codes;
+};
+
 byte clip(int x);
 int rnd(float x);
 

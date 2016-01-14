@@ -103,8 +103,14 @@ struct jpeg_encode_component
 	byte dc_code_lengths[17];
 	byte ac_code_lengths[257];
 	// Number of codes of each length
-	int dc_code_length_count[32];
-	int ac_code_length_count[32];
+	byte dc_code_length_count[32];
+	byte ac_code_length_count[32];
+    // sorted list of symbols to be encoded
+    byte dc_huffval[16];
+    byte ac_huffval[256];
+    // DHT segment informatiom
+    struct jpeg_dht dc_dht;
+    struct jpeg_dht ac_dht;
 	long rlc_count;
 };
 
@@ -551,7 +557,7 @@ static void find_code_lengths(void)
 
 			// NOW WE COUNT THE NUMBER OF CODES OF EACH LENGTH
 			// WE CAN POTENTIALLY HAVE CODES OF UP TO 32 BITS AT THIS POINT
-			int num_codes_of_each_length[32];
+			byte num_codes_of_each_length[33];
 			memset(num_codes_of_each_length, 0, sizeof(num_codes_of_each_length));
 			int j = 0;
 			for (j = 0; j < numcodes; j++)
@@ -577,7 +583,7 @@ static void find_code_lengths(void)
 
 
 
-				for (j = 0; j < 32; j++)
+				for (j = 0; j < 33; j++)
 				{
 					printf("Number of codes of length %d : %d\n", j, num_codes_of_each_length[j]);
 				}
@@ -596,7 +602,7 @@ static void limit_code_lengths()
 	for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
 	{
 		struct jpeg_encode_component *c = &icecomp[ncomp];
-		int *code_length_count = 0;
+		byte *code_length_count = 0;
 		int dcac = 0;
 		for (dcac = 0; dcac < 2; dcac++)
 		{
@@ -656,17 +662,21 @@ static void limit_code_lengths()
 	}
 }
 
+// static void sort_codes()
+//
+// Here we generate a sorted list of symbols
+// sort criterion is the symbol's VLC code length
 static void sort_codes()
 {
-	int dc_huffval[16];
-	int ac_huffval[256];
+	byte dc_huffval[16];
+	byte ac_huffval[256];
 
 	int ncomp = 0;
 	for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
 	{
 		struct jpeg_encode_component *c = &icecomp[ncomp];
 		byte *codelengths = 0;
-		int *huffval = 0;
+		byte *huffval = 0;
 		int dcac = 0;
 		int numcodes = 0;
 		for (dcac = 0; dcac < 2; dcac++)
@@ -675,7 +685,7 @@ static void sort_codes()
 			huffval = !dcac ? dc_huffval : ac_huffval;
 			numcodes = !dcac ? 16 : 256;
 
-			memset(huffval, 0, sizeof(int) * numcodes);
+			memset(huffval, 0, sizeof(byte) * numcodes);
 
 			int i = 1, j, k = 0;
 
@@ -692,6 +702,8 @@ static void sort_codes()
 				i++;
 			}
 			
+            memcpy(!dcac ? c->dc_huffval : c->ac_huffval, huffval, sizeof(byte) * numcodes);
+            
 #ifdef _JPEG_ENCODER_DEBUG
 			if (ncomp == 0 && dcac == 0)
 			{
@@ -706,9 +718,98 @@ static void sort_codes()
 
 		}
 	}
+}
+
+// generates an array huffsize that contains
+// the length of the code that would be written
+// at each index
+static void gen_huffman_code_sizes()
+{
+    int dc_huffsize[256];
+    int ac_huffsize[256];
+    
+    int ncomp = 0;
+    for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
+    {
+        struct jpeg_encode_component *c = &icecomp[ncomp];
+        byte *codelength_count = 0;
+        int dcac = 0;
+        int numcodes = 0;
+        int *huffsize = 0;
+        for (dcac = 0; dcac < 2; dcac++)
+        {
+            codelength_count = !dcac ? c->dc_code_length_count : c->ac_code_length_count;
+            huffsize = !dcac ? dc_huffsize : ac_huffsize;
+            numcodes = !dcac ? 16 : 256;
+            int lastk = 0;
+            
+            memset(huffsize, 0, sizeof(int) * 256);
+            
+            int k = 0, i = 1, j = 1;
+            
+            while (i <= 15)
+            {
+                while (j <= codelength_count[i])
+                {
+                    huffsize[k++] = i;
+                    j++;
+                }
+            
+                i++;
+                j = 1;
+            }
+            
+            huffsize[k] = 0;
+            lastk = k;
+            
+#ifdef _JPEG_ENCODER_DEBUG
+            if (ncomp == 0 && dcac == 0)
+            {
+                
+                for (j = 0; j < 256; j++)
+                {
+                    printf("Position %d -> Value %d\n", j, huffsize[j]);
+                }
+                printf("\n");
+            }
+#endif
+        }
+    }
+    
+}
 
 
-
+// Here we create the JPEG style DHT data
+// which can be used by the function get_huffman_tables() from the
+// decoder to generate out bitstrings
+static void gen_DHT(void)
+{
+    int ncomp = 0;
+    for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
+    {
+        struct jpeg_encode_component *c = &icecomp[ncomp];
+        int dcac = 0;
+        int numcodes = 0;
+        struct jpeg_dht *dht = 0;
+        byte *codelength_count = 0;
+        for (dcac = 0; dcac < 2; dcac++)
+        {
+            dht = !dcac ? &c->dc_dht : &c->ac_dht;
+            codelength_count = !dcac ? c->dc_code_length_count : c->ac_code_length_count;
+            numcodes = !dcac ? 16 : 256;
+            
+            byte codes_total = 0;
+            int i = 0;
+            for (i = 0; i < 16; i++)
+            {
+                dht->num_codes[i] = codelength_count[i+1];
+                codes_total += dht->num_codes[i];
+            }
+            
+            dht->codes = (byte*) malloc(codes_total);
+            memcpy(dht->codes, !dcac ? c->dc_huffval : c->ac_huffval, codes_total);
+        }
+    }
 }
 
 static int encode(void)
@@ -836,6 +937,8 @@ int icejpeg_write(void)
 	find_code_lengths();
 	//limit_code_lengths();
 	sort_codes();
+    //gen_huffman_code_sizes();
+    gen_DHT();
 
 	return 0;
 }
