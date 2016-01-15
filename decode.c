@@ -14,8 +14,6 @@
 //#define _JPEG_DEBUG
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
-#define MAX_DC_TABLES 4
-#define MAX_AC_TABLES 4
 
 #define USE_LANCZOS_UPSAMPLING
 

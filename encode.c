@@ -83,6 +83,11 @@ struct __ice_env
 	int mcu_width, mcu_height;
     int cur_mcu_x, cur_mcu_y;
     int block[64];
+	struct jpeg_huffman_code dc_huff[2][16];
+	struct jpeg_huffman_code ac_huff[2][256];
+	byte scan_buffer[0xFFFF];
+	int buf_pos;
+	unsigned char bits_remaining;
 } iceenv;
 
 
@@ -261,7 +266,7 @@ static void downsample()
 			}
 			int last_val = *(outpixels - icecomp[i].stride);
 			// fill rest of the buffer with value of bottommost pixel
-			while (outpixels < start_index + (icecomp[i].stride * (new_height - 1)))
+			while (outpixels < start_index + (icecomp[i].stride * (new_height - 0 /*1*/)))
 			{
 				*outpixels = last_val;
 				outpixels += icecomp[i].stride;
@@ -320,6 +325,8 @@ static int encode_du(int comp, int du_x, int du_y)
 			value = UPSCALE(value);
 			value /= jpeg_qtbl_selector[comp][(y * 8) + x];
 			iceenv.block[(y * 8) + x] = sign * DESCALE(value);
+			int finalv = sign * DESCALE(value);
+			finalv += 0;
 		}
 	}
 
@@ -431,6 +438,7 @@ static void get_code_stats(void)
             
             du_index += (c->rlc[j]->info & 0xF) >> 4;
             du_index++;
+			// Reset index if we've processed all 64 samples OR encountered an EOB
             if (du_index == 64 || c->rlc[j]->info == 0)
             {
                 du_index = 0;
@@ -438,6 +446,8 @@ static void get_code_stats(void)
             }
         }
         
+		// For Huffman code generation purposes
+		// Will be removed later on in the process
 		c->dc_code_count[16] = 1;
 		c->ac_code_count[256] = 1;
 
@@ -720,65 +730,6 @@ static void sort_codes()
 	}
 }
 
-// generates an array huffsize that contains
-// the length of the code that would be written
-// at each index
-static void gen_huffman_code_sizes()
-{
-    int dc_huffsize[256];
-    int ac_huffsize[256];
-    
-    int ncomp = 0;
-    for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
-    {
-        struct jpeg_encode_component *c = &icecomp[ncomp];
-        byte *codelength_count = 0;
-        int dcac = 0;
-        int numcodes = 0;
-        int *huffsize = 0;
-        for (dcac = 0; dcac < 2; dcac++)
-        {
-            codelength_count = !dcac ? c->dc_code_length_count : c->ac_code_length_count;
-            huffsize = !dcac ? dc_huffsize : ac_huffsize;
-            numcodes = !dcac ? 16 : 256;
-            int lastk = 0;
-            
-            memset(huffsize, 0, sizeof(int) * 256);
-            
-            int k = 0, i = 1, j = 1;
-            
-            while (i <= 15)
-            {
-                while (j <= codelength_count[i])
-                {
-                    huffsize[k++] = i;
-                    j++;
-                }
-            
-                i++;
-                j = 1;
-            }
-            
-            huffsize[k] = 0;
-            lastk = k;
-            
-#ifdef _JPEG_ENCODER_DEBUG
-            if (ncomp == 0 && dcac == 0)
-            {
-                
-                for (j = 0; j < 256; j++)
-                {
-                    printf("Position %d -> Value %d\n", j, huffsize[j]);
-                }
-                printf("\n");
-            }
-#endif
-        }
-    }
-    
-}
-
-
 // Here we create the JPEG style DHT data
 // which can be used by the function get_huffman_tables() from the
 // decoder to generate out bitstrings
@@ -810,6 +761,179 @@ static void gen_DHT(void)
             memcpy(dht->codes, !dcac ? c->dc_huffval : c->ac_huffval, codes_total);
         }
     }
+}
+
+// Here we finally create the 2 global DC Huffman tables and 2 AC Huffman tables
+// which can be used for encoding
+static int gen_huffman_tables(void)
+{
+	int i, j, k;
+
+	struct jpeg_dht* cur_src_table = 0;
+	struct jpeg_huffman_code* cur_dst_table = 0;
+
+	// Loop over all 2 tables
+	for (i = 0; i < MAX_DC_TABLES + MAX_AC_TABLES; i++)
+	{
+		if (i >= 0 && i < MAX_DC_TABLES)
+		{
+			cur_src_table = &icecomp[i].dc_dht;
+		}
+		else
+		{
+			cur_src_table = &icecomp[i - MAX_DC_TABLES].ac_dht;
+		}
+
+		if (!cur_src_table)
+			continue;
+
+		word cur_bitstring = 0;
+		byte cur_length = 0;
+		byte code_buf_pos = 0;
+
+		if (i >= 0 && i < MAX_DC_TABLES)
+		{
+			cur_dst_table = iceenv.dc_huff[i];
+		}
+		else
+		{
+			cur_dst_table = iceenv.ac_huff[i - MAX_DC_TABLES];
+		}
+
+		byte *symbols = cur_src_table->codes;
+
+		// Loop over all 16 code lengths
+		for (j = 0; j < 16; j++)
+		{
+			cur_length = j + 1;
+
+#ifdef _JPEG_ENCODER_DEBUG
+			printf("Codes of length %d bits:\n", cur_length);
+#endif
+			// Loop over all codes of length j
+			for (k = 0; k < cur_src_table->num_codes[j]; k++)
+			{
+				cur_dst_table[*symbols].length = cur_length;
+				cur_dst_table[*symbols].code = cur_bitstring;
+
+#ifdef _JPEG_ENCODER_DEBUG
+				printf("\t");
+				int l;
+				for (l = cur_length - 1; l >= 0; l--)
+				{
+					printf("%d", (cur_bitstring & (1 << l)) >> l);
+				}
+				printf(" -> %X\n", *symbols);
+#endif
+
+				symbols++;
+				cur_bitstring++;
+
+			}
+			cur_bitstring <<= 1;
+		}
+#ifdef _JPEG_ENCODER_DEBUG
+		printf("\n");
+#endif
+	}
+
+	return ERR_OK;
+}
+
+// Writes a bit string of a give length to the bit stream
+static int write_bits(unsigned short value, unsigned char length)
+{
+	if (length > 16)
+		return ERR_INVALID_LENGTH;
+
+	while (length)
+	{
+		unsigned char bits_from_byte = min(length, iceenv.bits_remaining);
+		// The right-shift aligns bit strings longer than what our current byte can hold
+		// The left-shift aligns bit strings shorter than what our current byte can hold
+		iceenv.scan_buffer[iceenv.buf_pos] |= (value >> max(0, length - iceenv.bits_remaining)) << max(0, iceenv.bits_remaining - length);
+		iceenv.bits_remaining -= bits_from_byte;
+		length -= bits_from_byte;
+		if (!iceenv.bits_remaining)
+		{
+			iceenv.bits_remaining = 8;
+			// Insert stuff byte if necessary
+			if (iceenv.scan_buffer[iceenv.buf_pos] == 0xFF)
+				iceenv.buf_pos++;
+			iceenv.buf_pos++;
+
+			if (iceenv.buf_pos >= 0xFFFF)
+				return ERR_SCAN_BUFFER_OVERFLOW;
+		}
+	}
+
+	return ERR_OK;
+}
+
+static int create_bitstream()
+{
+	int i;
+
+	iceenv.cur_mcu_x = iceenv.cur_mcu_y = 0;
+	for (i = 0; i < iceenv.num_components; i++)
+		icecomp[i].rlc_index = 0;
+	// Encode every MCU
+	for (;;)
+	{
+		for (i = 0; i < iceenv.num_components; i++)
+		{
+			struct jpeg_encode_component *c = &icecomp[i];
+			int is_dc = 1;
+			int du_index = 0;
+			int num_du_per_mcu = c->sx * c->sy;
+			struct jpeg_huffman_code *huff_table = 0;
+			int luma_chroma = i == 0 ? 0 : 1;
+			int err;
+			struct jpeg_zrlc* cur_rlc;
+
+			while (num_du_per_mcu)
+			{
+				huff_table = is_dc ? iceenv.dc_huff[luma_chroma] : iceenv.ac_huff[luma_chroma];
+				cur_rlc = c->rlc[icecomp[i].rlc_index];
+
+				if (is_dc) is_dc = 0;
+
+				err = write_bits(huff_table[cur_rlc->info].code, huff_table[cur_rlc->info].length);
+				if (err)
+					return err;
+				err = write_bits(cur_rlc->value.bits, cur_rlc->value.length);
+				if (err)
+					return err;
+				
+				du_index += (cur_rlc->info & 0xF0) >> 4;
+				du_index++;
+				// Reset index if we've processed all 64 samples OR encountered an EOB
+				if (du_index >= 64 || cur_rlc->info == 0)
+				{
+					du_index = 0;
+					is_dc = 1;
+					num_du_per_mcu--;
+				}
+
+				icecomp[i].rlc_index++;
+			}
+		}
+		//break;
+		iceenv.cur_mcu_x++;
+		if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
+		{
+			iceenv.cur_mcu_x = 0;
+			iceenv.cur_mcu_y++;
+			if (iceenv.cur_mcu_y == iceenv.num_mcu_y)
+				break;
+		}
+	}
+
+#ifdef _JPEG_ENCODER_DEBUG
+	printf("Finished bitstream at %d bytes\n", iceenv.buf_pos);
+#endif
+
+	return ERR_OK;
 }
 
 static int encode(void)
@@ -848,15 +972,18 @@ static int encode(void)
                 break;
         }
     }
-    
 
-
+	for (i = 0; i < iceenv.num_components; i++)
+	{
+		icecomp[i].rlc_count = icecomp[i].rlc_index;
+	}
     
     return ERR_OK;
 }
 
 int icejpeg_encode_init(const char *filename, unsigned char *image, int width, int height, int y_samp, int cb_samp, int cr_samp)
 {
+	memset(&iceenv, 0, sizeof(struct __ice_env));
 	memset(icecomp, 0, sizeof(struct jpeg_encode_component) * 3);
 
 	strcpy(iceenv.outfile, filename);
@@ -927,6 +1054,8 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 		//icecomp[i].pixels = (byte *)malloc(icecomp[i].stride * icecomp[i].height);
 	}
 
+	iceenv.bits_remaining = 8;
+
 	return ERR_OK;
 }
 
@@ -935,12 +1064,14 @@ int icejpeg_write(void)
 	downsample();
     encode();
 	find_code_lengths();
-	//limit_code_lengths();
+	limit_code_lengths();
 	sort_codes();
     //gen_huffman_code_sizes();
     gen_DHT();
+	gen_huffman_tables();
+	int err = create_bitstream();
 
-	return 0;
+	return err;
 }
 
 /*!
@@ -970,5 +1101,70 @@ void icejpeg_encode_cleanup()
             free(icecomp[i].rlc[j++]);
 		if (icecomp[i].rlc)
 			free(icecomp[i].rlc);
+		if (icecomp[i].dc_dht.codes)
+			free(icecomp[i].dc_dht.codes);
+		if (icecomp[i].ac_dht.codes)
+			free(icecomp[i].ac_dht.codes);
 	}
+}
+
+//************************************************************
+
+// UNNECCESSARY FOR NOW, implemented according to Annex K in the JPEG Standard
+// generates an array huffsize that contains
+// the length of the code that would be written
+// at each index
+static void gen_huffman_code_sizes()
+{
+	int dc_huffsize[256];
+	int ac_huffsize[256];
+
+	int ncomp = 0;
+	for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
+	{
+		struct jpeg_encode_component *c = &icecomp[ncomp];
+		byte *codelength_count = 0;
+		int dcac = 0;
+		int numcodes = 0;
+		int *huffsize = 0;
+		for (dcac = 0; dcac < 2; dcac++)
+		{
+			codelength_count = !dcac ? c->dc_code_length_count : c->ac_code_length_count;
+			huffsize = !dcac ? dc_huffsize : ac_huffsize;
+			numcodes = !dcac ? 16 : 256;
+			int lastk = 0;
+
+			memset(huffsize, 0, sizeof(int) * 256);
+
+			int k = 0, i = 1, j = 1;
+
+			while (i <= 15)
+			{
+				while (j <= codelength_count[i])
+				{
+					huffsize[k++] = i;
+					j++;
+				}
+
+				i++;
+				j = 1;
+			}
+
+			huffsize[k] = 0;
+			lastk = k;
+
+#ifdef _JPEG_ENCODER_DEBUG
+			if (ncomp == 0 && dcac == 0)
+			{
+
+				for (j = 0; j < 256; j++)
+				{
+					printf("Position %d -> Value %d\n", j, huffsize[j]);
+				}
+				printf("\n");
+			}
+#endif
+		}
+	}
+
 }

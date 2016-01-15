@@ -23,6 +23,11 @@
 #define ERR_SOF0_MISSING                    -9
 #define ERR_PROGRESSIVE						-10
 #define ERR_OUT_OF_MEMORY					-11
+#define ERR_SCAN_BUFFER_OVERFLOW			-12
+#define ERR_INVALID_LENGTH					-13
+
+#define MAX_DC_TABLES 2
+#define MAX_AC_TABLES 2
 
 typedef unsigned char byte;
 typedef unsigned short word;
