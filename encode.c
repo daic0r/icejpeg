@@ -85,6 +85,8 @@ struct __ice_env
     int block[64];
 	struct jpeg_huffman_code dc_huff[2][16];
 	struct jpeg_huffman_code ac_huff[2][256];
+    int dc_huff_numcodes[2];
+    int ac_huff_numcodes[2];
 	byte scan_buffer[0xFFFF];
 	int buf_pos;
 	unsigned char bits_remaining;
@@ -117,6 +119,8 @@ struct jpeg_encode_component
     struct jpeg_dht dc_dht;
     struct jpeg_dht ac_dht;
 	long rlc_count;
+    
+    int rlc_indices[40][40];
 };
 
 struct jpeg_encode_component icecomp[3];
@@ -330,6 +334,9 @@ static int encode_du(int comp, int du_x, int du_y)
 		}
 	}
 
+    iceenv.block[0] -= icecomp[comp].prev_dc;
+    icecomp[comp].prev_dc = iceenv.block[0];
+    
     //print_block(iceenv.block);
     
 	// Do Zero Run Length Coding for this block
@@ -367,8 +374,8 @@ static int encode_du(int comp, int du_x, int du_y)
 		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = category;
 		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = get_bit_coding(value, category);
 
-		icecomp[comp].rlc_index++;
-        
+        icecomp[comp].rlc_index++;
+
         if (icecomp[comp].rlc_index == 0xFFFF * 10)
         {
             printf("OUT OF MEMORY: (%d,%d)[%d](%d,%d)\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y);
@@ -394,14 +401,20 @@ static int encode_du(int comp, int du_x, int du_y)
 		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = 0;
 		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = 0;
 
-		icecomp[comp].rlc_index++;
+        icecomp[comp].rlc_index++;
         
         if (icecomp[comp].rlc_index == 0xFFFF * 10)
         {
             printf("OUT OF MEMORY: (%d,%d)[%d](%d,%d)\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y);
             getc(stdin);
         }
+     
+        if (iceenv.cur_mcu_x == 15 && iceenv.cur_mcu_y == 0)
+        {
+            printf("Done with (%d, %d)\n", du_x, du_y);
+        }
 	}
+
 
 #ifdef _JPEG_ENCODER_DEBUG
 //     if (icecomp[comp].rlc_index - start_rlc_index > 10)
@@ -841,7 +854,7 @@ static int gen_huffman_tables(void)
 }
 
 // Writes a bit string of a give length to the bit stream
-static int write_bits(unsigned short value, unsigned char length)
+static inline int write_bits(unsigned short value, unsigned char length)
 {
 	if (length > 16)
 		return ERR_INVALID_LENGTH;
@@ -890,6 +903,8 @@ static int create_bitstream()
 			int luma_chroma = i == 0 ? 0 : 1;
 			int err;
 			struct jpeg_zrlc* cur_rlc;
+            
+            int start_index = icecomp[i].rlc_index;
 
 			while (num_du_per_mcu)
 			{
@@ -904,7 +919,7 @@ static int create_bitstream()
 				err = write_bits(cur_rlc->value.bits, cur_rlc->value.length);
 				if (err)
 					return err;
-				
+               
 				du_index += (cur_rlc->info & 0xF0) >> 4;
 				du_index++;
 				// Reset index if we've processed all 64 samples OR encountered an EOB
@@ -913,10 +928,16 @@ static int create_bitstream()
 					du_index = 0;
 					is_dc = 1;
 					num_du_per_mcu--;
-				}
+                    start_index = icecomp[i].rlc_index;
+                }
 
 				icecomp[i].rlc_index++;
 			}
+
+#ifdef _JPEG_ENCODER_DEBUG
+            if (icecomp[i].rlc_index != icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x])
+                printf("DIFFERENT!\n");
+#endif
 		}
 		//break;
 		iceenv.cur_mcu_x++;
@@ -961,6 +982,7 @@ static int encode(void)
 
                 }
             }
+            icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x] = icecomp[i].rlc_index;
         }
         //break;
         iceenv.cur_mcu_x++;
@@ -1107,6 +1129,24 @@ void icejpeg_encode_cleanup()
 			free(icecomp[i].ac_dht.codes);
 	}
 }
+
+//************************************************************
+// FILE WRITING FUNCTIONS
+//************************************************************
+static int write_file(void)
+{
+    FILE *f;
+    f = fopen(iceenv.outfile, "wb");
+    if (!f)
+    {
+        return ERR_CANNOT_OPEN_OUTPUT_FILE;
+    }
+    
+    
+    
+    return ERR_OK;
+}
+
 
 //************************************************************
 

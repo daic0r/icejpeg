@@ -10,6 +10,8 @@
 #define common_h
 
 #define CF(x) clip((((x) + 64) >> 7))
+#define max(a,b) (((a) > (b)) ? (a) : (b))
+#define min(a,b) (((a) < (b)) ? (a) : (b))
 
 #define ERR_OK								0
 #define ERR_OPENFILE_FAILED					-1
@@ -25,6 +27,7 @@
 #define ERR_OUT_OF_MEMORY					-11
 #define ERR_SCAN_BUFFER_OVERFLOW			-12
 #define ERR_INVALID_LENGTH					-13
+#define ERR_CANNOT_OPEN_OUTPUT_FILE         -14
 
 #define MAX_DC_TABLES 2
 #define MAX_AC_TABLES 2

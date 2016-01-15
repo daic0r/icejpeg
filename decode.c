@@ -12,9 +12,6 @@
 
 
 //#define _JPEG_DEBUG
-#define max(a,b) (((a) > (b)) ? (a) : (b))
-#define min(a,b) (((a) < (b)) ? (a) : (b))
-
 #define USE_LANCZOS_UPSAMPLING
 
 
