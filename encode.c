@@ -415,7 +415,7 @@ static int encode_du(int comp, int du_x, int du_y)
 
 		icecomp[comp].rlc[icecomp[comp].rlc_index]->info = 0; // EOB
 
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = 0;
+		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = 0xFF;
 		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = 0;
 
         icecomp[comp].rlc_index++;
@@ -879,6 +879,9 @@ static int gen_huffman_tables(void)
 // Writes a bit string of a give length to the bit stream
 static inline int write_bits(unsigned short value, unsigned char length)
 {
+    if (length == 0xFF)
+        return ERR_OK;
+    
 	if (length > 16)
 		return ERR_INVALID_LENGTH;
 
@@ -950,7 +953,7 @@ static int create_bitstream()
 				du_index += (cur_rlc->info & 0xF0) >> 4;
 				du_index++;
 				// Reset index if we've processed all 64 samples OR encountered an EOB
-				if (du_index >= 64 || (cur_rlc->info == 0))
+				if (du_index >= 64 || cur_rlc->value.length == 0xFF)
 				{
 					du_index = 0;
 					is_dc = 1;
