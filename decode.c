@@ -11,7 +11,7 @@
 #include <string.h>
 
 
-//#define _JPEG_DEBUG
+#define _JPEG_DEBUG
 #define USE_LANCZOS_UPSAMPLING
 
 
@@ -54,30 +54,10 @@ const byte jpeg_zigzag[] =
 typedef byte* jpeg_dqttable;
 jpeg_dqttable qt_tables[4];
 
-struct jpeg_app0
-{
-    char strjfif[5];
-    byte maj_revision, min_revision;
-    byte xy_dens_unit;
-    word xdensity, ydensity;
-    byte thumb_width, thumb_height;
-} app0;
+struct jpeg_app0 app0;
 
 // as read from the file
-struct jpeg_sof0_component_info
-{
-    // as found in the jpeg file (3 bytes)
-    byte id;
-    byte sampling_factors;  //bit 0-3: vertical, 4-7: horizontal
-    byte qt_table;
-};
-
-struct jpeg_sof0
-{
-    byte precision;
-    word height, width;
-    byte num_components;
-} sof0;
+struct jpeg_sof0 sof0;
 
 struct jpeg_dht *dc_dht[MAX_DC_TABLES], *ac_dht[MAX_AC_TABLES];
 
@@ -174,11 +154,6 @@ word fetch_word(void)
     temp <<= 8;
     temp |= file_buf[buf_pos++];
     return temp;
-}
-
-word flip_byte_order(word inword)
-{
-    return ((inword & 0xFF) << 8) | ((inword & 0xFF00) >> 8);
 }
 
 int gen_huffman_tables(void)
@@ -397,7 +372,19 @@ int process_dqt(void)
         memcpy((void*)qt_tables[info & 0xF], (void*)(file_buf + buf_pos), 64);
         buf_pos += 64;
         bytes_read += 64 + 1;	// including the info byte above
+        
+#ifdef _JPEG_DEBUG
+        int x = 0, y = 0;
+        for (y = 0; y < 8; y++)
+        {
+            for (x = 0; x < 8; x++)
+            {
+                printf("%d ", qt_tables[info & 0xF][(y * 8) + x]);
+            }
+            printf("\n");
+        }
     }
+#endif
     
     return ERR_OK;
 }
@@ -562,13 +549,14 @@ int decode_du(byte id_component)
     cur_code = get_next_code(cur_table);
     
 #ifdef _JPEG_DEBUG
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)
     printf("Code found: %X\n", cur_code);
 #endif
     
     bit_string = fetch_bits(cur_code);
     
 #ifdef _JPEG_DEBUG
-    printf("Bits fetched: %d\n", bit_string);
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)    printf("Bits fetched: %d\n", bit_string);
 #endif
     
     short value = get_signed_short(bit_string, cur_code);
@@ -578,7 +566,7 @@ int decode_du(byte id_component)
     block[0] = components[id_component].prev_dc;
     
 #ifdef _JPEG_DEBUG
-    printf("DC value: %d, absolute value: %d\n", block[0], value);
+    if (cur_mcu_x == 0 && cur_mcu_y == 0)    printf("DC value: %d, absolute value: %d\n", block[0], value);
 #endif
     
     // Dequantize DC value
@@ -598,14 +586,14 @@ int decode_du(byte id_component)
         if (cur_code == 0)
         {
 #ifdef _JPEG_DEBUG
-            printf("\tEOB encountered\n");
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)            printf("\tEOB encountered\n");
 #endif
             had_eob = 1;
             break;
         }
         
 #ifdef _JPEG_DEBUG
-        printf("\tSkipping %d zeros\n", (cur_code & 0xF0) >> 4);
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("\tSkipping %d zeros\n", (cur_code & 0xF0) >> 4);
 #endif
         
         // Skip zeros
@@ -616,13 +604,13 @@ int decode_du(byte id_component)
         bit_string = fetch_bits(cur_code & 0xF);
         
 #ifdef _JPEG_DEBUG
-        printf("Fetched %d bits\n", cur_code & 0xF);
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("Fetched %d bits\n", cur_code & 0xF);
 #endif
         
         value = get_signed_short(bit_string, cur_code & 0xF);
         
 #ifdef _JPEG_DEBUG
-        printf("AC value: %d\n", value);
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("AC value: %d\n", value);
 #endif
         
         byte actual_index = jpeg_zigzag[block_index];
@@ -633,9 +621,13 @@ int decode_du(byte id_component)
         block_index++;
         
 #ifdef _JPEG_DEBUG
-        printf("Dequantized AC value: %d\n", block[actual_index]);
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("Dequantized AC value: %d\n", block[actual_index]);
 #endif
     }
+    
+#ifdef _JPEG_DEBUG
+    if (cur_mcu_x == 0 && cur_mcu_y == 10)    printf("\n");
+#endif
     
     /****************************************************/
     /* Perform IDCT                                     */

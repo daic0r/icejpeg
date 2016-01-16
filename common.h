@@ -29,11 +29,14 @@
 #define ERR_INVALID_LENGTH					-13
 #define ERR_CANNOT_OPEN_OUTPUT_FILE         -14
 
-#define MAX_DC_TABLES 2
-#define MAX_AC_TABLES 2
+#define MAX_DC_TABLES 4
+#define MAX_AC_TABLES 4
 
 typedef unsigned char byte;
 typedef unsigned short word;
+
+#pragma pack(push)
+#pragma pack(1)
 
 struct jpeg_component
 {
@@ -61,7 +64,35 @@ struct jpeg_dht
     byte *codes;
 };
 
+struct jpeg_app0
+{
+    char strjfif[5];
+    byte maj_revision, min_revision;
+    byte xy_dens_unit;
+    word xdensity, ydensity;
+    byte thumb_width, thumb_height;
+};
+
+// as read from the file
+struct jpeg_sof0_component_info
+{
+    // as found in the jpeg file (3 bytes)
+    byte id;
+    byte sampling_factors;  //bit 0-3: vertical, 4-7: horizontal
+    byte qt_table;
+};
+
+struct jpeg_sof0
+{
+    byte precision;
+    word height, width;
+    byte num_components;
+};
+
+#pragma pack(pop)
+
 byte clip(int x);
 int rnd(float x);
+word flip_byte_order(word inword);
 
 #endif /* common_h */

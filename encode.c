@@ -83,10 +83,10 @@ struct __ice_env
 	int mcu_width, mcu_height;
     int cur_mcu_x, cur_mcu_y;
     int block[64];
-	struct jpeg_huffman_code dc_huff[2][16];
-	struct jpeg_huffman_code ac_huff[2][256];
-    int dc_huff_numcodes[2];
-    int ac_huff_numcodes[2];
+	struct jpeg_huffman_code dc_huff[3][16];
+	struct jpeg_huffman_code ac_huff[3][256];
+    int dc_huff_numcodes[3];
+    int ac_huff_numcodes[3];
 	byte scan_buffer[0xFFFF];
 	int buf_pos;
 	unsigned char bits_remaining;
@@ -124,6 +124,9 @@ struct jpeg_encode_component
 };
 
 struct jpeg_encode_component icecomp[3];
+
+
+static int write_to_file();
 
 static void print_block(int block[64])
 {
@@ -289,10 +292,12 @@ static void downsample()
 	iceenv.image = 0;
 }
 
+#define _JPEG_OUTPUT_DC
+
 static int encode_du(int comp, int du_x, int du_y)
 {
     int *buffer = 0;
-    int duOriginIndex = ((iceenv.cur_mcu_y * (icecomp[comp].sy << 3) + (du_y << 3)) * icecomp[comp].stride) + (iceenv.cur_mcu_x * (icecomp[comp].sx << 3) + (du_x << 3));
+    long duOriginIndex = ((iceenv.cur_mcu_y * (icecomp[comp].sy << 3) + (du_y << 3)) * icecomp[comp].stride) + (iceenv.cur_mcu_x * (icecomp[comp].sx << 3) + (du_x << 3));
     
     // Create 8x8 block
     int x, y;
@@ -304,39 +309,43 @@ static int encode_du(int comp, int du_x, int du_y)
     
     // Perform DCT
     fdct(iceenv.block);
-    
+
     // Zigzag reordering
     int *block = (int*) malloc(64 * sizeof(int));
     for (x = 0; x < 64; x++)
         block[jpeg_zz[x]] = iceenv.block[x];
     memcpy(iceenv.block, block, 64 * sizeof(int));
-	
-	free(block);
-	block = 0;
     
     // Quantization
-	for (y = 0; y < 8; y++)
-	{
-		for (x = 0; x < 8; x++)
-		{
-			register int value = iceenv.block[(y * 8) + x];
-			// Right-shift rounds towards negative infinity, so we're gonna do our
-			// computations with positive numbers and then put the sign back
-			// after we're done
- 			int sign = value < 0 ? -1 : 1;
-			if (sign < 0)
- 				value *= sign;
-			value = UPSCALE(value);
-			value /= jpeg_qtbl_selector[comp][(y * 8) + x];
-			iceenv.block[(y * 8) + x] = sign * DESCALE(value);
-			int finalv = sign * DESCALE(value);
-			finalv += 0;
-		}
-	}
+    for (y = 0; y < 8; y++)
+    {
+        for (x = 0; x < 8; x++)
+        {
+            register int value = iceenv.block[(y * 8) + x];
+            // Right-shift rounds towards negative infinity, so we're gonna do our
+            // computations with positive numbers and then put the sign back
+            // after we're done
+            int sign = value < 0 ? -1 : 1;
+            if (sign < 0)
+                value *= sign;
+            value = UPSCALE(value);
+            value /= jpeg_qtbl_selector[comp][(y * 8) + x];
+            iceenv.block[(y * 8) + x] = sign * DESCALE(value);
+            int finalv = sign * DESCALE(value);
+            finalv += 0;
+        }
+    }
+   
+ 	free(block);
+	block = 0;
+
+#ifdef _JPEG_OUTPUT_DC
+    if (!iceenv.cur_mcu_x && !iceenv.cur_mcu_y)
+        printf("%d\n", iceenv.block[0]);
+#endif
 
     iceenv.block[0] -= icecomp[comp].prev_dc;
-    icecomp[comp].prev_dc = iceenv.block[0];
-    
+    icecomp[comp].prev_dc += iceenv.block[0];
     //print_block(iceenv.block);
     
 	// Do Zero Run Length Coding for this block
@@ -349,6 +358,8 @@ static int encode_du(int comp, int du_x, int du_y)
 		end_pointer--;
 
 	block = iceenv.block;
+    
+    int entered  = 0;
 
     int start_rlc_index = icecomp[comp].rlc_index;
 	while (block < end_pointer)
@@ -384,7 +395,13 @@ static int encode_du(int comp, int du_x, int du_y)
         }
         
 		block++;
+        entered = 1;
     };
+    
+    if (!entered)
+    {
+        printf("WARNING\n");
+    }
     
 	// Only put an EOB if we don't have a zero run at the end
 	if (end_pointer != iceenv.block + 64)
@@ -772,6 +789,12 @@ static void gen_DHT(void)
             
             dht->codes = (byte*) malloc(codes_total);
             memcpy(dht->codes, !dcac ? c->dc_huffval : c->ac_huffval, codes_total);
+            
+            if (!dcac)
+               iceenv.dc_huff_numcodes[ncomp] = codes_total;
+            else
+               iceenv.ac_huff_numcodes[ncomp] = codes_total;
+
         }
     }
 }
@@ -786,15 +809,15 @@ static int gen_huffman_tables(void)
 	struct jpeg_huffman_code* cur_dst_table = 0;
 
 	// Loop over all 2 tables
-	for (i = 0; i < MAX_DC_TABLES + MAX_AC_TABLES; i++)
+	for (i = 0; i < 3 + 3; i++)
 	{
-		if (i >= 0 && i < MAX_DC_TABLES)
+		if (i >= 0 && i < 3)
 		{
 			cur_src_table = &icecomp[i].dc_dht;
 		}
 		else
 		{
-			cur_src_table = &icecomp[i - MAX_DC_TABLES].ac_dht;
+			cur_src_table = &icecomp[i - 3].ac_dht;
 		}
 
 		if (!cur_src_table)
@@ -804,13 +827,13 @@ static int gen_huffman_tables(void)
 		byte cur_length = 0;
 		byte code_buf_pos = 0;
 
-		if (i >= 0 && i < MAX_DC_TABLES)
+		if (i >= 0 && i < 3)
 		{
 			cur_dst_table = iceenv.dc_huff[i];
 		}
 		else
 		{
-			cur_dst_table = iceenv.ac_huff[i - MAX_DC_TABLES];
+			cur_dst_table = iceenv.ac_huff[i - 3];
 		}
 
 		byte *symbols = cur_src_table->codes;
@@ -900,7 +923,6 @@ static int create_bitstream()
 			int du_index = 0;
 			int num_du_per_mcu = c->sx * c->sy;
 			struct jpeg_huffman_code *huff_table = 0;
-			int luma_chroma = i == 0 ? 0 : 1;
 			int err;
 			struct jpeg_zrlc* cur_rlc;
             
@@ -908,7 +930,7 @@ static int create_bitstream()
 
 			while (num_du_per_mcu)
 			{
-				huff_table = is_dc ? iceenv.dc_huff[luma_chroma] : iceenv.ac_huff[luma_chroma];
+				huff_table = is_dc ? iceenv.dc_huff[i] : iceenv.ac_huff[i];
 				cur_rlc = c->rlc[icecomp[i].rlc_index];
 
 				if (is_dc) is_dc = 0;
@@ -920,15 +942,24 @@ static int create_bitstream()
 				if (err)
 					return err;
                
+#ifdef _JPEG_ENCODER_DEBUG
+                if (iceenv.cur_mcu_y == 10 && iceenv.cur_mcu_x == 0)
+                    printf("Wrote code (%d,%d), category %d, bits %d\n", (cur_rlc->info & 0xF0) >> 4, cur_rlc->info & 0xF, cur_rlc->value.length, cur_rlc->value.bits);
+#endif
+                
 				du_index += (cur_rlc->info & 0xF0) >> 4;
 				du_index++;
 				// Reset index if we've processed all 64 samples OR encountered an EOB
-				if (du_index >= 64 || cur_rlc->info == 0)
+				if (du_index >= 64 || (cur_rlc->info == 0))
 				{
 					du_index = 0;
 					is_dc = 1;
 					num_du_per_mcu--;
                     start_index = icecomp[i].rlc_index;
+#ifdef _JPEG_ENCODER_DEBUG
+                    if (iceenv.cur_mcu_y == 10 && iceenv.cur_mcu_x == 0)
+                        printf("DU done.\n");
+#endif
                 }
 
 				icecomp[i].rlc_index++;
@@ -1093,6 +1124,8 @@ int icejpeg_write(void)
 	gen_huffman_tables();
 	int err = create_bitstream();
 
+    write_to_file();
+    
 	return err;
 }
 
@@ -1133,7 +1166,152 @@ void icejpeg_encode_cleanup()
 //************************************************************
 // FILE WRITING FUNCTIONS
 //************************************************************
-static int write_file(void)
+static int write_app0(FILE *f)
+{
+    word marker = 0xE0FF;
+    word length = flip_byte_order(sizeof(struct jpeg_app0) + 2);
+    
+    struct jpeg_app0 app0;
+    app0.maj_revision = 1;
+    app0.min_revision = 1;
+    strcpy(app0.strjfif, "JFIF");
+    app0.thumb_width = app0.thumb_height = 0;
+    app0.xy_dens_unit = 0;
+    app0.xdensity = app0.ydensity = 1;
+    
+    fwrite(&marker, sizeof(word), 1, f);
+    fwrite(&length, sizeof(word), 1, f);
+    fwrite(&app0, sizeof(byte), sizeof(struct jpeg_app0), f);
+    
+    return ERR_OK;
+}
+
+static int write_dqt(FILE *f)
+{
+    word marker = 0xDBFF;
+    word length = flip_byte_order(2 * 65 + 2);
+    
+    fwrite(&marker, sizeof(word), 1, f);
+    fwrite(&length, sizeof(word), 1, f);
+    fputc('\0', f);
+    fwrite(jpeg_qtbl_luminance, sizeof(byte), 64, f);
+    fputc('\1', f);
+    fwrite(jpeg_qtbl_chrominance, sizeof(byte), 64, f);
+    
+    return ERR_OK;
+}
+
+static int write_dht(FILE *f)
+{
+    int num_tables = iceenv.num_components * 2;
+    
+    word marker = 0xC4FF;
+    word length = flip_byte_order(num_tables + num_tables*16 + (iceenv.dc_huff_numcodes[0] + iceenv.dc_huff_numcodes[1] + iceenv.dc_huff_numcodes[2] + iceenv.ac_huff_numcodes[0] + iceenv.ac_huff_numcodes[1]  + iceenv.ac_huff_numcodes[2]) + 2);
+    
+    fwrite(&marker, sizeof(word), 1, f);
+    fwrite(&length, sizeof(word), 1, f);
+    
+    byte info = 0;
+    
+    // 1st table, DC
+    fputc(info, f);
+    fwrite(icecomp[0].dc_dht.num_codes, sizeof(byte), 16, f);
+    fwrite(icecomp[0].dc_dht.codes, sizeof(byte), iceenv.dc_huff_numcodes[0], f);
+
+    // 2nd table, AC
+    info = 16;
+    fputc(info, f);
+    fwrite(icecomp[0].ac_dht.num_codes, sizeof(byte), 16, f);
+    fwrite(icecomp[0].ac_dht.codes, sizeof(byte), iceenv.ac_huff_numcodes[0], f);
+    
+    if (num_tables == 6)
+    {
+        // 3rd table, DC
+        info = 1;
+        fputc(info, f);
+        fwrite(icecomp[1].dc_dht.num_codes, sizeof(byte), 16, f);
+        fwrite(icecomp[1].dc_dht.codes, sizeof(byte), iceenv.dc_huff_numcodes[1], f);
+        
+        // 4th table, AC
+        info = 17;
+        fputc(info, f);
+        fwrite(icecomp[1].ac_dht.num_codes, sizeof(byte), 16, f);
+        fwrite(icecomp[1].ac_dht.codes, sizeof(byte), iceenv.ac_huff_numcodes[1], f);
+        
+        // 5th table, DC
+        info = 2;
+        fputc(info, f);
+        fwrite(icecomp[2].dc_dht.num_codes, sizeof(byte), 16, f);
+        fwrite(icecomp[2].dc_dht.codes, sizeof(byte), iceenv.dc_huff_numcodes[2], f);
+        
+        // 6th table, AC
+        info = 18;
+        fputc(info, f);
+        fwrite(icecomp[2].ac_dht.num_codes, sizeof(byte), 16, f);
+        fwrite(icecomp[2].ac_dht.codes, sizeof(byte), iceenv.ac_huff_numcodes[2], f);
+    }
+    
+    return ERR_OK;
+}
+
+static int write_sof0(FILE *f)
+{
+    word marker = 0xC0FF;
+    word length = flip_byte_order(8 + iceenv.num_components * 3);
+    
+    struct jpeg_sof0 sof0;
+    
+    sof0.num_components = iceenv.num_components;
+    sof0.width = flip_byte_order(iceenv.width);
+    sof0.height = flip_byte_order(iceenv.height);
+    sof0.precision = 8;
+    
+    fwrite(&marker, sizeof(word), 1, f);
+    fwrite(&length, sizeof(word), 1, f);
+    
+    fwrite(&sof0, sizeof(byte), sizeof(sof0), f);
+    
+    int i = 0;
+    for (i = 0; i < iceenv.num_components; i++)
+    {
+        struct jpeg_sof0_component_info compinfo;
+        compinfo.id = i + 1;
+        compinfo.qt_table = !i ? 0 : 1;
+        compinfo.sampling_factors = (icecomp[i].sy << 4) | icecomp[i].sx;
+        
+        fwrite(&compinfo, sizeof(byte), sizeof(compinfo), f);
+    }
+    
+    return ERR_OK;
+}
+
+static int write_sos(FILE *f)
+{
+    word marker = 0xDAFF;
+    word length = flip_byte_order(6 + 2*iceenv.num_components);
+    
+    fwrite(&marker, sizeof(word), 1, f);
+    fwrite(&length, sizeof(word), 1, f);
+    
+    fputc((byte) iceenv.num_components, f);
+    
+    int i = 0;
+    for (i = 0; i < iceenv.num_components; i++)
+    {
+        fputc((byte) i + 1, f);
+        byte huff_table_selector = (i << 4) | i;
+        fputc((byte) huff_table_selector, f);
+    }
+    
+    for (i = 0; i < 3; i++)
+        fputc('\0', f);
+    
+    fwrite(iceenv.scan_buffer, sizeof(byte), iceenv.buf_pos, f);
+    
+    return ERR_OK;
+}
+
+static int write_to_file(void)
 {
     FILE *f;
     f = fopen(iceenv.outfile, "wb");
@@ -1142,7 +1320,19 @@ static int write_file(void)
         return ERR_CANNOT_OPEN_OUTPUT_FILE;
     }
     
+    word marker = 0xD8FF;
+    fwrite(&marker, sizeof(word), 1, f);
     
+    write_app0(f);
+    write_dqt(f);
+    write_dht(f);
+    write_sof0(f);
+    write_sos(f);
+    
+    marker = 0xD9FF;
+    fwrite(&marker, sizeof(word), 1, f);
+    
+    fclose(f);
     
     return ERR_OK;
 }

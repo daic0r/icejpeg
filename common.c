@@ -24,3 +24,8 @@ int rnd(float x)
 		return -rnd(-x);
 	return (int)(x + 0.5f);
 }
+
+word flip_byte_order(word inword)
+{
+    return ((inword & 0xFF) << 8) | ((inword & 0xFF00) >> 8);
+}
