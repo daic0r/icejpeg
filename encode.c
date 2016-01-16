@@ -316,6 +316,9 @@ static int encode_du(int comp, int du_x, int du_y)
         block[jpeg_zz[x]] = iceenv.block[x];
     memcpy(iceenv.block, block, 64 * sizeof(int));
     
+    free(block);
+    block = 0;
+    
     // Quantization
     for (y = 0; y < 8; y++)
     {
@@ -335,10 +338,7 @@ static int encode_du(int comp, int du_x, int du_y)
             finalv += 0;
         }
     }
-   
- 	free(block);
-	block = 0;
-
+    
 #ifdef _JPEG_OUTPUT_DC
     if (!iceenv.cur_mcu_x && !iceenv.cur_mcu_y)
         printf("%d\n", iceenv.block[0]);
@@ -469,7 +469,7 @@ static void get_code_stats(void)
             du_index += (c->rlc[j]->info & 0xF) >> 4;
             du_index++;
 			// Reset index if we've processed all 64 samples OR encountered an EOB
-            if (du_index == 64 || c->rlc[j]->info == 0)
+            if (du_index == 64 || c->rlc[j]->value.length == 0xFF)
             {
                 du_index = 0;
                 is_dc = 1;
@@ -987,6 +987,11 @@ static int create_bitstream()
 #ifdef _JPEG_ENCODER_DEBUG
 	printf("Finished bitstream at %d bytes\n", iceenv.buf_pos);
 #endif
+    
+    if (iceenv.bits_remaining)
+    {
+        iceenv.scan_buffer[iceenv.buf_pos++] |= (1 << iceenv.bits_remaining) - 1;
+    }
 
 	return ERR_OK;
 }

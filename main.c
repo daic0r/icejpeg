@@ -50,10 +50,10 @@ int main(int argc, const char** argv)
 	err = icejpeg_write();
 	icejpeg_encode_cleanup();
     
-//     char outfile[40];
-//     strcpy(outfile, basename);
-//     
-//     
+     char outfile[40];
+     strcpy(outfile, basename);
+     
+     
 //     FILE *f = fopen(strcat(outfile, ".ppm"), "wb");
 //     if (!f) {
 //         printf("Error opening the output file.\n");
@@ -62,8 +62,8 @@ int main(int argc, const char** argv)
 //     fprintf(f, "P%d\n%d %d\n255\n", img_components == 3 ? 6 : 5 , img_width, img_height);
 //     fwrite(my_image, 1, (img_width * img_height) * img_components, f);
 //     fclose(f);
-//     
-//     free((void*)my_image);
+    
+     free((void*)my_image);
     
     icejpeg_cleanup();
     
