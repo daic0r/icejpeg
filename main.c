@@ -13,10 +13,38 @@
 #include "decode.h"
 #include "encode.h"
 
+static void generate_constants()
+{
+    int y_r = rnd(0.299f * (1 << PRECISION));
+    int y_g = rnd(0.587f * (1 << PRECISION));
+    int y_b = rnd(0.114f * (1 << PRECISION));
+    
+    int cb_r = rnd(-0.168736f * (1 << PRECISION));
+    int cb_g = rnd(-0.331264f * (1 << PRECISION));
+    int cb_b = rnd(0.5f * (1 << PRECISION));
+    
+    int cr_r = rnd(0.5f * (1 << PRECISION));
+    int cr_g = rnd(-0.418688f * (1 << PRECISION));
+    int cr_b = rnd(-0.081312f * (1 << PRECISION));
+    
+    printf("%d\n", y_r);
+    printf("%d\n", y_g);
+    printf("%d\n\n", y_b);
+    
+    printf("%d\n", cb_r);
+    printf("%d\n", cb_g);
+    printf("%d\n\n", cb_b);
+    
+    printf("%d\n", cr_r);
+    printf("%d\n", cr_g);
+    printf("%d\n", cr_b);
+    
+}
 
 int main(int argc, const char** argv)
 {
-    const char * basename = "huff_simple0";
+  
+    const char * basename = "jessica";
     
     char jpegfile[40];
     strcpy(jpegfile, basename);

@@ -36,6 +36,18 @@ const byte jpeg_zz[] = {
     35, 36, 48, 49, 57, 58, 62, 63
 };
 
+const byte jpeg_CRAZY[] =
+{
+    0, 1, 8, 16, 9, 2, 3, 10,
+    17, 24, 32, 25, 18, 11, 4, 5,
+    12, 19, 26, 33, 40, 48, 41, 34,
+    27, 20, 13, 6, 7, 14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36,
+    29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46,
+    53, 60, 61, 54, 47, 55, 62, 63
+};
+
 byte jpeg_qtbl_luminance[] = {
 //	16, 11, 10, 16, 124, 140, 151, 161,
 //	12, 12, 14, 19, 126, 158, 160, 155,
@@ -152,34 +164,6 @@ static void print_block(int block[64])
     }
     
     printf("\n");
-}
-
-static void generate_constants()
-{
-	int y_r = rnd(0.299f * (1 << PRECISION));
-	int y_g = rnd(0.587f * (1 << PRECISION));
-	int y_b = rnd(0.114f * (1 << PRECISION));
-
-	int cb_r = rnd(-0.1687f * (1 << PRECISION));
-	int cb_g = rnd(-0.3313f * (1 << PRECISION));
-	int cb_b = rnd(0.5f * (1 << PRECISION));
-
-	int cr_r = rnd(0.5f * (1 << PRECISION));
-	int cr_g = rnd(-0.4187f * (1 << PRECISION));
-	int cr_b = rnd(-0.0813f * (1 << PRECISION));
-
-	printf("%d\n", y_r);
-	printf("%d\n", y_g);
-	printf("%d\n\n", y_b);
-
-	printf("%d\n", cb_r);
-	printf("%d\n", cb_g);
-	printf("%d\n\n", cb_b);
-
-	printf("%d\n", cr_r);
-	printf("%d\n", cr_g);
-	printf("%d\n", cr_b);
-
 }
 
 // Find the number of bits necessary to represent an int value
@@ -683,8 +667,6 @@ static void find_code_lengths(void)
 
 static void limit_code_lengths()
 {
-	printf("LIMITING\n\n");
-
 	int ncomp = 0;
 	for (ncomp = 0; ncomp < iceenv.num_components; ncomp++)
 	{
@@ -945,12 +927,13 @@ static inline int write_bits(unsigned short value, unsigned char length)
 			iceenv.bits_remaining = 8;
 			// Insert stuff byte if necessary
 			if (iceenv.scan_buffer[iceenv.buf_pos] == 0xFF)
-				iceenv.buf_pos++;
+                iceenv.buf_pos++;
 			iceenv.buf_pos++;
 
 			if (iceenv.buf_pos >= iceenv.scan_buf_size)
             {
                 iceenv.scan_buffer = (byte*) realloc(iceenv.scan_buffer, iceenv.scan_buf_size + 0xFFFF);
+                memset(iceenv.scan_buffer + iceenv.scan_buf_size, 0, 0xFFFF);
                 iceenv.scan_buf_size += 0xFFFF;
                 if (!iceenv.scan_buffer)
                     return ERR_SCAN_BUFFER_OVERFLOW;
@@ -1002,7 +985,7 @@ static int create_bitstream()
                
 #ifdef _JPEG_ENCODER_DEBUG
                 //if (iceenv.cur_mcu_y == 10 && iceenv.cur_mcu_x == 0)
-                    printf("Wrote code (%d,%d), category %d, bits %d\n", (cur_rlc->info & 0xF0) >> 4, cur_rlc->info & 0xF, cur_rlc->value.length, cur_rlc->value.bits);
+                //    printf("Wrote code (%d,%d), category %d, bits %d\n", (cur_rlc->info & 0xF0) >> 4, cur_rlc->info & 0xF, cur_rlc->value.length, cur_rlc->value.bits);
 #endif
                 
 				du_index += (cur_rlc->info & 0xF0) >> 4;
@@ -1183,11 +1166,6 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 
 	iceenv.bits_remaining = 8;
     
-    //for (i = 0; i < 64; i++)
-    //    jpeg_qtbl_luminance[i] /= 2;
-    //for (i = 0; i < 64; i++)
-    //    jpeg_qtbl_chrominance[i] /= 2;
-
 	return ERR_OK;
 }
 
