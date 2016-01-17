@@ -110,8 +110,8 @@ struct jpeg_encode_component
 	byte dc_code_lengths[17];
 	byte ac_code_lengths[257];
 	// Number of codes of each length
-	byte dc_code_length_count[32];
-	byte ac_code_length_count[32];
+	byte dc_code_length_count[33];
+	byte ac_code_length_count[33];
     // sorted list of symbols to be encoded
     byte dc_huffval[16];
     byte ac_huffval[256];
@@ -318,7 +318,7 @@ static int encode_du(int comp, int du_x, int du_y)
     
     free(block);
     block = 0;
-    
+
     // Quantization
     for (y = 0; y < 8; y++)
     {
@@ -354,7 +354,10 @@ static int encode_du(int comp, int du_x, int du_y)
 	x = 0;
 
 	int* end_pointer = iceenv.block + 64;
-	while (!end_pointer[-1] && end_pointer > iceenv.block)
+    // WE HAVE TO STOP ONE BEFORE THE BEGINNING OF THE BLOCK
+    // THE DC COEFFICIENT HAS TO BE WRITTEN SEPARATELY, EVEN IF THE WHOLE
+    // BLOCK IS ALL 0s
+	while (!end_pointer[-1] && end_pointer > iceenv.block+1)
 		end_pointer--;
 
 	block = iceenv.block;
@@ -610,25 +613,21 @@ static void find_code_lengths(void)
 
 #ifdef _JPEG_ENCODER_DEBUG
 
-			if (i == 0 && dcac == 0)
-			{
-				//{
-					//int j = 0;
-				for (j = 0; j < numcodes; j++)
-				{
-					printf("Code size of symbol %X = %d\n", j, !dcac ? c->dc_code_lengths[j] : c->ac_code_lengths[j]);
-				}
-				printf("\n");
-				//}
+//			if (i == 0 && dcac == 0)
+//			{
+//            printf("Component %d, dcac=%d\n", i, dcac);
+//
+//				for (j = 0; j < numcodes; j++)
+//				{
+//					printf("Code size of symbol %X = %d\n", j, !dcac ? c->dc_code_lengths[j] : c->ac_code_lengths[j]);
+//				}
+//				printf("\n");
+//				for (j = 0; j < 33; j++)
+//				{
+//					printf("Number of codes of length %d : %d\n", j, num_codes_of_each_length[j]);
+//				}
 
-
-
-				for (j = 0; j < 33; j++)
-				{
-					printf("Number of codes of length %d : %d\n", j, num_codes_of_each_length[j]);
-				}
-
-			}
+//			}
 #endif
 		}
 	}
@@ -689,14 +688,14 @@ static void limit_code_lengths()
 			}
 
 #ifdef _JPEG_ENCODER_DEBUG
-			if (ncomp == 0 && dcac == 0)
-			{
-				int dbg = 0;
-				for (dbg = 0; dbg < 32; dbg++)
-				{
-					printf("Number of codes of length %d : %d\n", dbg, code_length_count[dbg]);
-				}
-			}
+//			if (ncomp == 0 && dcac == 0)
+//			{
+//				int dbg = 0;
+//				for (dbg = 0; dbg < 32; dbg++)
+//				{
+//					printf("Number of codes of length %d : %d\n", dbg, code_length_count[dbg]);
+//				}
+//			}
 #endif
 		}
 	}
@@ -745,15 +744,15 @@ static void sort_codes()
             memcpy(!dcac ? c->dc_huffval : c->ac_huffval, huffval, sizeof(byte) * numcodes);
             
 #ifdef _JPEG_ENCODER_DEBUG
-			if (ncomp == 0 && dcac == 0)
-			{
+//			if (ncomp == 0 && dcac == 0)
+//			{
 
 				for (j = 0; j < numcodes; j++)
 				{
 					printf("Position %d -> Code %d\n", j, huffval[j]);
 				}
 				printf("\n");
-			}
+//			}
 #endif
 
 		}
@@ -946,7 +945,7 @@ static int create_bitstream()
 					return err;
                
 #ifdef _JPEG_ENCODER_DEBUG
-                if (iceenv.cur_mcu_y == 10 && iceenv.cur_mcu_x == 0)
+                //if (iceenv.cur_mcu_y == 10 && iceenv.cur_mcu_x == 0)
                     printf("Wrote code (%d,%d), category %d, bits %d\n", (cur_rlc->info & 0xF0) >> 4, cur_rlc->info & 0xF, cur_rlc->value.length, cur_rlc->value.bits);
 #endif
                 
@@ -1073,14 +1072,24 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
     {
         for (x = 0; x < width; x++)
         {
-            register int y = DESCALE(YR * image[0] + YG * image[1] + YB * image[2]);
-            register int cb = DESCALE(CBR * image[0] + CBG * image[1] + CBB * image[2]) + 128;
-            register int cr = DESCALE(CRR * image[0] + CRG * image[1] + CRB * image[2]) + 128;
+            if (iceenv.num_components == 3)
+            {
+                register int y = DESCALE(YR * image[0] + YG * image[1] + YB * image[2]);
+                register int cb = DESCALE(CBR * image[0] + CBG * image[1] + CBB * image[2]) + 128;
+                register int cr = DESCALE(CRR * image[0] + CRG * image[1] + CRB * image[2]) + 128;
      
-            *cur_image++ = y;
-            *cur_image++ = cb;
-            *cur_image++ = cr;
-            image += 3;
+                *cur_image++ = y;
+                *cur_image++ = cb;
+                *cur_image++ = cr;
+                image += 3;
+            }
+            else
+            {
+                register int y = DESCALE(YR * image[0] + YG * image[0] + YB * image[0]);
+                
+                *cur_image++ = y;
+                image++;
+            }
         }
     }
 
@@ -1168,7 +1177,8 @@ void icejpeg_encode_cleanup()
 			free(icecomp[i].dc_dht.codes);
 		if (icecomp[i].ac_dht.codes)
 			free(icecomp[i].ac_dht.codes);
-	}
+
+    }
 }
 
 //************************************************************
@@ -1198,6 +1208,14 @@ static int write_dqt(FILE *f)
 {
     word marker = 0xDBFF;
     word length = flip_byte_order(2 * 65 + 2);
+    
+//    byte qtbl_lum[64];
+//    byte qtbl_chr[64];
+//    int i =0;
+//    for (i = 0; i < 64; i++)
+//        qtbl_lum[jpeg_zz[i]] = jpeg_qtbl_luminance[i];
+//    for (i = 0; i < 64; i++)
+//        qtbl_chr[jpeg_zz[i]] = jpeg_qtbl_chrominance[i];
     
     fwrite(&marker, sizeof(word), 1, f);
     fwrite(&length, sizeof(word), 1, f);

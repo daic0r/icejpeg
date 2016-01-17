@@ -49,10 +49,10 @@ int main(int argc, const char** argv)
 	icejpeg_encode_init("out.jpg", my_image, img_width, img_height, 2, 1, 1);
 	err = icejpeg_write();
 	icejpeg_encode_cleanup();
-    
+
      char outfile[40];
      strcpy(outfile, basename);
-     
+    
      
 //     FILE *f = fopen(strcat(outfile, ".ppm"), "wb");
 //     if (!f) {
