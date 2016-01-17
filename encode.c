@@ -36,18 +36,27 @@ const byte jpeg_zz[] = {
     35, 36, 48, 49, 57, 58, 62, 63
 };
 
-const byte jpeg_qtbl_luminance[] = {
-	16, 11, 10, 16, 124, 140, 151, 161,
-	12, 12, 14, 19, 126, 158, 160, 155,
-	14, 13, 16, 24, 140, 157, 169, 156,
-	14, 17, 22, 29, 151, 187, 180, 162,
-	18, 22, 37, 56, 168, 109, 103, 177,
-	24, 35, 55, 64, 181, 104, 113, 192,
-	49, 64, 78, 87, 103, 121, 120, 101,
-	72, 92, 95, 98, 112, 100, 103, 199
+byte jpeg_qtbl_luminance[] = {
+//	16, 11, 10, 16, 124, 140, 151, 161,
+//	12, 12, 14, 19, 126, 158, 160, 155,
+//	14, 13, 16, 24, 140, 157, 169, 156,
+//	14, 17, 22, 29, 151, 187, 180, 162,
+//	18, 22, 37, 56, 168, 109, 103, 177,
+//	24, 35, 55, 64, 181, 104, 113, 192,
+//	49, 64, 78, 87, 103, 121, 120, 101,
+//	72, 92, 95, 98, 112, 100, 103, 199
+    
+    16,  11,  10,  16,  24,  40,  51,  61,
+    12,  12,  14,  19,  26,  58,  60,  55,
+    14,  13,  16,  24,  40,  57,  69,  56,
+    14,  17,  22,  29,  51,  87,  80,  62,
+    18,  22,  37,  56,  68, 109, 103,  77,
+    24,  35,  55,  64,  81, 104, 113,  92,
+    49,  64,  78,  87, 103, 121, 120, 101,
+    72,  92,  95,  98, 112, 100, 103,  99
 };
 
-const byte jpeg_qtbl_chrominance[] = {
+byte jpeg_qtbl_chrominance[] = {
 	17, 18, 24, 47, 99, 99, 99, 99,
 	18, 21, 26, 66, 99, 99, 99, 99,
 	24, 26, 56, 99, 99, 99, 99, 99,
@@ -87,9 +96,10 @@ struct __ice_env
 	struct jpeg_huffman_code ac_huff[3][256];
     int dc_huff_numcodes[3];
     int ac_huff_numcodes[3];
-	byte scan_buffer[0xFFFF];
+	byte* scan_buffer;
 	int buf_pos;
 	unsigned char bits_remaining;
+    int scan_buf_size;
 } iceenv;
 
 
@@ -103,6 +113,7 @@ struct jpeg_encode_component
 	int *pixels;
 	int prev_dc;
 	struct jpeg_zrlc **rlc;
+    int rlc_size;
 	int rlc_index;
     int dc_code_count[17];
     int ac_code_count[257];
@@ -292,6 +303,36 @@ static void downsample()
 	iceenv.image = 0;
 }
 
+// The last parameter is only for the EOB code
+// Normally category == bit_length
+static int add_rlc(int comp, int zeros, int category, int bits, int bit_length)
+{
+    // Allocate memory
+    icecomp[comp].rlc[icecomp[comp].rlc_index] = (struct jpeg_zrlc*) malloc(sizeof(struct jpeg_zrlc));
+    
+    icecomp[comp].rlc[icecomp[comp].rlc_index]->info = zeros << 4;
+    
+
+    icecomp[comp].rlc[icecomp[comp].rlc_index]->info |= category;
+    
+    icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = bit_length;
+    icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = bits;
+    
+    icecomp[comp].rlc_index++;
+    
+    if (icecomp[comp].rlc_index == icecomp[comp].rlc_size)
+    {
+        icecomp[comp].rlc = (struct jpeg_zrlc**) realloc(icecomp[comp].rlc, (icecomp[comp].rlc_size + 0xFFFF) * sizeof(struct jpeg_zrlc*));
+        icecomp[comp].rlc_size += 0xFFFF;
+        if (!icecomp[comp].rlc)
+        {
+            return ERR_RLC_BUFFER_OVERFLOW;
+        }
+    }
+ 
+    return ERR_OK;
+}
+
 #define _JPEG_OUTPUT_DC
 
 static int encode_du(int comp, int du_x, int du_y)
@@ -376,26 +417,31 @@ static int encode_du(int comp, int du_x, int du_y)
 			zeros++;
 			block++;
 		}
-        // Allocate memory
-        icecomp[comp].rlc[icecomp[comp].rlc_index] = (struct jpeg_zrlc*) malloc(sizeof(struct jpeg_zrlc));
+//        // Allocate memory
+//        icecomp[comp].rlc[icecomp[comp].rlc_index] = (struct jpeg_zrlc*) malloc(sizeof(struct jpeg_zrlc));
+//        
+//		icecomp[comp].rlc[icecomp[comp].rlc_index]->info = zeros << 4;
+//
+//		register int value = *block;
+//		byte category = find_category(value);
+//		icecomp[comp].rlc[icecomp[comp].rlc_index]->info |= category;
+//
+//		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = category;
+//		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = get_bit_coding(value, category);
+//
+//        icecomp[comp].rlc_index++;
+//
+//        if (icecomp[comp].rlc_index == 0xFFFF * 10)
+//        {
+//            printf("OUT OF MEMORY: (%d,%d)[%d](%d,%d)\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y);
+//            getc(stdin);
+//
+//        }
         
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->info = zeros << 4;
-
-		register int value = *block;
-		byte category = find_category(value);
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->info |= category;
-
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = category;
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = get_bit_coding(value, category);
-
-        icecomp[comp].rlc_index++;
-
-        if (icecomp[comp].rlc_index == 0xFFFF * 10)
-        {
-            printf("OUT OF MEMORY: (%d,%d)[%d](%d,%d)\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y);
-            getc(stdin);
-
-        }
+        register int value = *block;
+        byte category = find_category(value);
+        
+        add_rlc(comp, zeros, category, get_bit_coding(value, category), category);
         
 		block++;
         entered = 1;
@@ -413,26 +459,28 @@ static int encode_du(int comp, int du_x, int du_y)
         //printf("Block prematurely terminated after %d entries.\n", end_pointer - iceenv.block);
 #endif
         
-        // Allocate memory
-        icecomp[comp].rlc[icecomp[comp].rlc_index] = (struct jpeg_zrlc*) malloc(sizeof(struct jpeg_zrlc));
-
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->info = 0; // EOB
-
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = 0xFF;
-		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = 0;
-
-        icecomp[comp].rlc_index++;
+//        // Allocate memory
+//        icecomp[comp].rlc[icecomp[comp].rlc_index] = (struct jpeg_zrlc*) malloc(sizeof(struct jpeg_zrlc));
+//
+//		icecomp[comp].rlc[icecomp[comp].rlc_index]->info = 0; // EOB
+//
+//		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.length = 0xFF;
+//		icecomp[comp].rlc[icecomp[comp].rlc_index]->value.bits = 0;
+//
+//        icecomp[comp].rlc_index++;
+//        
+//        if (icecomp[comp].rlc_index == 0xFFFF * 10)
+//        {
+//            printf("OUT OF MEMORY: (%d,%d)[%d](%d,%d)\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y);
+//            getc(stdin);
+//        }
+//     
+//        if (iceenv.cur_mcu_x == 15 && iceenv.cur_mcu_y == 0)
+//        {
+//            printf("Done with (%d, %d)\n", du_x, du_y);
+//        }
         
-        if (icecomp[comp].rlc_index == 0xFFFF * 10)
-        {
-            printf("OUT OF MEMORY: (%d,%d)[%d](%d,%d)\n", iceenv.cur_mcu_x, iceenv.cur_mcu_y, comp, du_x, du_y);
-            getc(stdin);
-        }
-     
-        if (iceenv.cur_mcu_x == 15 && iceenv.cur_mcu_y == 0)
-        {
-            printf("Done with (%d, %d)\n", du_x, du_y);
-        }
+        add_rlc(comp, 0, 0, 0, 0xFF);
 	}
 
 
@@ -900,8 +948,13 @@ static inline int write_bits(unsigned short value, unsigned char length)
 				iceenv.buf_pos++;
 			iceenv.buf_pos++;
 
-			if (iceenv.buf_pos >= 0xFFFF)
-				return ERR_SCAN_BUFFER_OVERFLOW;
+			if (iceenv.buf_pos >= iceenv.scan_buf_size)
+            {
+                iceenv.scan_buffer = (byte*) realloc(iceenv.scan_buffer, iceenv.scan_buf_size + 0xFFFF);
+                iceenv.scan_buf_size += 0xFFFF;
+                if (!iceenv.scan_buffer)
+                    return ERR_SCAN_BUFFER_OVERFLOW;
+            }
 		}
 	}
 
@@ -912,6 +965,9 @@ static int create_bitstream()
 {
 	int i;
 
+    iceenv.scan_buf_size = 0xFFFF;
+    iceenv.scan_buffer = (byte*) malloc(iceenv.scan_buf_size);
+    
 	iceenv.cur_mcu_x = iceenv.cur_mcu_y = 0;
 	for (i = 0; i < iceenv.num_components; i++)
 		icecomp[i].rlc_index = 0;
@@ -967,10 +1023,10 @@ static int create_bitstream()
 				icecomp[i].rlc_index++;
 			}
 
-#ifdef _JPEG_ENCODER_DEBUG
-            if (icecomp[i].rlc_index != icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x])
-                printf("DIFFERENT!\n");
-#endif
+//#ifdef _JPEG_ENCODER_DEBUG
+//            if (icecomp[i].rlc_index != icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x])
+//                printf("DIFFERENT!\n");
+//#endif
 		}
 		//break;
 		iceenv.cur_mcu_x++;
@@ -1001,8 +1057,9 @@ static int encode(void)
 
 	for (i = 0; i < iceenv.num_components; i++)
 	{
-		icecomp[i].rlc = (struct jpeg_zrlc**) malloc(sizeof(struct jpeg_zrlc*) * 0xFFFF * 10);
-		memset(icecomp[i].rlc, 0, sizeof(struct jpeg_zrlc*) * 0xFFFF * 10);
+		icecomp[i].rlc = (struct jpeg_zrlc**) malloc(sizeof(struct jpeg_zrlc*) * 0xFFFF);
+		memset(icecomp[i].rlc, 0, sizeof(struct jpeg_zrlc*) * 0xFFFF);
+        icecomp[i].rlc_size = 0xFFFF;
 	}
 
     // Encode every MCU
@@ -1020,7 +1077,7 @@ static int encode(void)
 
                 }
             }
-            icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x] = icecomp[i].rlc_index;
+            //icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x] = icecomp[i].rlc_index;
         }
         //break;
         iceenv.cur_mcu_x++;
@@ -1125,6 +1182,11 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 	}
 
 	iceenv.bits_remaining = 8;
+    
+    //for (i = 0; i < 64; i++)
+    //    jpeg_qtbl_luminance[i] /= 2;
+    //for (i = 0; i < 64; i++)
+    //    jpeg_qtbl_chrominance[i] /= 2;
 
 	return ERR_OK;
 }
@@ -1166,10 +1228,16 @@ void icejpeg_encode_cleanup()
 	if (iceenv.image)
 		free(iceenv.image);
 
+    if (iceenv.scan_buffer)
+    {
+        free(iceenv.scan_buffer);
+        iceenv.scan_buf_size = 0;
+    }
+    
 	for (i = 0; i < iceenv.num_components; i++)
 	{
         j = 0;
-        while (icecomp[i].rlc[j])
+        while (j < icecomp[j].rlc_index)
             free(icecomp[i].rlc[j++]);
 		if (icecomp[i].rlc)
 			free(icecomp[i].rlc);

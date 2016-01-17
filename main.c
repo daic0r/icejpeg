@@ -16,7 +16,7 @@
 
 int main(int argc, const char** argv)
 {
-    const char * basename = "example";
+    const char * basename = "huff_simple0";
     
     char jpegfile[40];
     strcpy(jpegfile, basename);
@@ -46,7 +46,7 @@ int main(int argc, const char** argv)
         return err;
     }
 
-	icejpeg_encode_init("out.jpg", my_image, img_width, img_height, 2, 1, 1);
+	icejpeg_encode_init("out.jpg", my_image, img_width, img_height, 1, 1, 1);
 	err = icejpeg_write();
 	icejpeg_encode_cleanup();
 
