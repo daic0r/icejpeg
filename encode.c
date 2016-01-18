@@ -9,7 +9,7 @@
 #define _JPEG_ENCODER_DEBUG
 
 #define UPSCALE(x) ((x) << PRECISION)
-#define DESCALE(x) (((x) + (PRECISION >> 1)) >> PRECISION)
+#define DESCALE(x) (((x) + (1 << (PRECISION - 1))) >> PRECISION)
 
 #define YR 77
 #define YG 150
@@ -370,7 +370,7 @@ static int encode_du(int comp, int du_x, int du_y)
                 value *= sign;
             value = UPSCALE(value);
             value /= jpeg_qtbl_selector[comp][(y * 8) + x];
-            iceenv.block[(y * 8) + x] = sign * DESCALE(value);
+            iceenv.block[(y * 8) + x] = sign * (DESCALE(value) >> 3);
         }
     }
 
