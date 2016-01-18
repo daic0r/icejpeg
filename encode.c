@@ -255,7 +255,7 @@ static void downsample()
 					cur_srcimage += icecomp[i].stride;
 				}
 				pixel_avg /= step_y;
-                *outpixels = pixel_avg;
+                *outpixels = pixel_avg - 128;
 #ifdef _JPEG_ENCODER_DEBUG
                 if (pixel_avg < min_val)
                     min_val = pixel_avg;
@@ -370,7 +370,7 @@ static int encode_du(int comp, int du_x, int du_y)
                 value *= sign;
             value = UPSCALE(value);
             value /= jpeg_qtbl_selector[comp][(y * 8) + x];
-            iceenv.block[(y * 8) + x] = sign * (DESCALE(value) >> 3);
+            iceenv.block[(y * 8) + x] = sign * DESCALE(value);
         }
     }
 
@@ -1138,13 +1138,19 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 
 	iceenv.bits_remaining = 8;
     
+    for (i = 0; i < 64; i++)
+    {
+        jpeg_qtbl_luminance[i] /= 2;
+        jpeg_qtbl_chrominance[i] /= 2;
+    }
+    
 	return ERR_OK;
 }
 
 int icejpeg_write(void)
 {
 	downsample();
-	level_shift();
+	//level_shift();
     encode();
 	find_code_lengths();
 	limit_code_lengths();

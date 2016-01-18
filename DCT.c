@@ -1,66 +1,59 @@
 /*
- * jfdctfst.c
+ * jfdctint.c
  *
- * Copyright (C) 1994-1996, Thomas G. Lane.
+ * Copyright (C) 1991-1996, Thomas G. Lane.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
- * This file contains a fast, not so accurate integer implementation of the
+ * This file contains a slow-but-accurate integer implementation of the
  * forward DCT (Discrete Cosine Transform).
  *
  * A 2-D DCT can be done by 1-D DCT on each row followed by 1-D DCT
  * on each column.  Direct algorithms are also available, but they are
  * much more complex and seem not to be any faster when reduced to code.
  *
- * This implementation is based on Arai, Agui, and Nakajima's algorithm for
- * scaled DCT.  Their original paper (Trans. IEICE E-71(11):1095) is in
- * Japanese, but the algorithm is described in the Pennebaker & Mitchell
- * JPEG textbook (see REFERENCES section in file README).  The following code
- * is based directly on figure 4-8 in P&M.
- * While an 8-point DCT cannot be done in less than 11 multiplies, it is
- * possible to arrange the computation so that many of the multiplies are
- * simple scalings of the final outputs.  These multiplies can then be
- * folded into the multiplications or divisions by the JPEG quantization
- * table entries.  The AA&N method leaves only 5 multiplies and 29 ad;ds
- * to be done in the DCT itself.
- * The primary disadvantage of this method is that with fixed-point math,
- * accuracy is lost due to imprecise representation of the scaled
- * quantization values.  The smaller the quantization table entry, the less
- * precise the scaled value, so this implementation does worse with high-
- * quality-setting files than with low-quality ones.
+ * This implementation is based on an algorithm described in
+ *   C. Loeffler, A. Ligtenberg and G. Moschytz, "Practical Fast 1-D DCT
+ *   Algorithms with 11 Multiplications", Proc. Int'l. Conf. on Acoustics,
+ *   Speech, and Signal Processing 1989 (ICASSP '89), pp. 988-991.
+ * The primary algorithm described there uses 11 multiplies and 29 adds.
+ * We use their alternate method with 12 multiplies and 32 adds.
+ * The advantage of this method is that no data path contains more than one
+ * multiplication; this allows a very simple and accurate implementation in
+ * scaled fixed-point arithmetic, with a minimal number of shifts.
  */
 
 #define JPEG_INTERNALS
-//#include "jinclude.h"
-//#include "jpeglib.h"
-//#include "jdct.h"		/* Private declarations for DCT subsystem */
+
 #include "DCT.h"
 
 //#ifdef DCT_IFAST_SUPPORTED
 
+#define BITS_IN_JSAMPLE 8
 
-/* Scaling decisions are generally the same as in the LL&M algorithm;
- * see jfdctint.c for more details.  However, we choose to descale
- * (right shift) multiplication products as soon as they are formed,
- * rather than carrying additional fractional bits into subsequent additions.
- * This compromises accuracy slightly, but it lets us save a few shifts.
- * More importantly, 16-bit arithmetic is then adequate (for 8-bit samples)
- * everywhere except in the multiplications proper; this saves a good deal
- * of work on 16-bit-int machines.
+/*
+ * The poop on this scaling stuff is as follows:
  *
- * Again to save a few shifts, the intermediate results between pass 1 and
- * pass 2 are not upscaled, but are represented only to integral precision.
+ * Each 1-D DCT step produces outputs which are a factor of sqrt(N)
+ * larger than the true DCT outputs.  The final outputs are therefore
+ * a factor of N larger than desired; since N=8 this can be cured by
+ * a simple right shift at the end of the algorithm.  The advantage of
+ * this arrangement is that we save two multiplications per 1-D DCT,
+ * because the y0 and y4 outputs need not be divided by sqrt(N).
+ * In the IJG code, this factor of 8 is removed by the quantization step
+ * (in jcdctmgr.c), NOT in this module.
  *
- * A final compromise is to represent the multiplicative constants to only
- * 8 fractional bits, rather than 13.  This saves some shifting work on some
- * machines, and may also reduce the cost of multiplication (since there
- * are fewer one-bits in the constants).
+ * daic0r: WE REMOVE THE FACTOR OF 8 RIGHT HERE BY RIGHT-SHIFTING
+ *         THE FINAL RESULTS BY 3!!
  */
 
-
-#define CONST_BITS  8
-
-
+#if BITS_IN_JSAMPLE == 8
+#define CONST_BITS  13
+#define PASS1_BITS  2
+#else
+#define CONST_BITS  13
+#define PASS1_BITS  1		/* lose a little precision to avoid overflow */
+#endif
 
 /*
  * Macros for handling fixed-point arithmetic; these are used by many
@@ -82,6 +75,14 @@
 
 #define FIX(x)	((INT32) ((x) * CONST_SCALE + 0.5))
 
+/* Descale and correctly round an INT32 value that's scaled by N bits.
+ * We assume RIGHT_SHIFT rounds towards minus infinity, so adding
+ * the fudge factor is correct for either sign of X.
+ */
+
+#define DESCALE(x,n)  RIGHT_SHIFT((x) + (ONE << ((n)-1)), n)
+
+
 /* Some C compilers fail to reduce "FIX(constant)" at compile time, thus
  * causing a lot of useless floating-point operations at run time.
  * To get around this we use the following pre-calculated constants.
@@ -89,35 +90,51 @@
  * (With a reasonable C compiler, you can just rely on the FIX() macro...)
  */
 
-#if CONST_BITS == 8
-#define FIX_0_382683433  ((INT32)   98)		/* FIX(0.382683433) */
-#define FIX_0_541196100  ((INT32)  139)		/* FIX(0.541196100) */
-#define FIX_0_707106781  ((INT32)  181)		/* FIX(0.707106781) */
-#define FIX_1_306562965  ((INT32)  334)		/* FIX(1.306562965) */
+#if CONST_BITS == 13
+#define FIX_0_298631336  ((INT32)  2446)	/* FIX(0.298631336) */
+#define FIX_0_390180644  ((INT32)  3196)	/* FIX(0.390180644) */
+#define FIX_0_541196100  ((INT32)  4433)	/* FIX(0.541196100) */
+#define FIX_0_765366865  ((INT32)  6270)	/* FIX(0.765366865) */
+#define FIX_0_899976223  ((INT32)  7373)	/* FIX(0.899976223) */
+#define FIX_1_175875602  ((INT32)  9633)	/* FIX(1.175875602) */
+#define FIX_1_501321110  ((INT32)  12299)	/* FIX(1.501321110) */
+#define FIX_1_847759065  ((INT32)  15137)	/* FIX(1.847759065) */
+#define FIX_1_961570560  ((INT32)  16069)	/* FIX(1.961570560) */
+#define FIX_2_053119869  ((INT32)  16819)	/* FIX(2.053119869) */
+#define FIX_2_562915447  ((INT32)  20995)	/* FIX(2.562915447) */
+#define FIX_3_072711026  ((INT32)  25172)	/* FIX(3.072711026) */
 #else
-#define FIX_0_382683433  FIX(0.382683433)
+#define FIX_0_298631336  FIX(0.298631336)
+#define FIX_0_390180644  FIX(0.390180644)
 #define FIX_0_541196100  FIX(0.541196100)
-#define FIX_0_707106781  FIX(0.707106781)
-#define FIX_1_306562965  FIX(1.306562965)
+#define FIX_0_765366865  FIX(0.765366865)
+#define FIX_0_899976223  FIX(0.899976223)
+#define FIX_1_175875602  FIX(1.175875602)
+#define FIX_1_501321110  FIX(1.501321110)
+#define FIX_1_847759065  FIX(1.847759065)
+#define FIX_1_961570560  FIX(1.961570560)
+#define FIX_2_053119869  FIX(2.053119869)
+#define FIX_2_562915447  FIX(2.562915447)
+#define FIX_3_072711026  FIX(3.072711026)
 #endif
 
 
-/* We can gain a little more speed, with a further compromise in accuracy,
- * by omitting the addition in a descaling shift.  This yields an incorrectly
- * rounded result half the time...
+/* Multiply an INT32 variable by an INT32 constant to yield an INT32 result.
+ * For 8-bit samples with the recommended scaling, all the variable
+ * and constant values involved are no more than 16 bits wide, so a
+ * 16x16->32 bit multiply can be used instead of a full 32x32 multiply.
+ * For 12-bit samples, a full 32-bit multiplication will be needed.
  */
 
-#ifndef USE_ACCURATE_ROUNDING
-#undef DESCALE
-#define DESCALE(x,n)  RIGHT_SHIFT(x, n)
+#ifndef MULTIPLY16C16		/* default definition */
+#define MULTIPLY16C16(var,const)  ((var) * (const))
 #endif
 
-
-/* Multiply a DCTELEM variable by an INT32 constant, and immediately
- * descale to yield a DCTELEM result.
- */
-
-#define MULTIPLY(var,const)  ((DCTELEM) DESCALE((var) * (const), CONST_BITS))
+#if BITS_IN_JSAMPLE == 8
+#define MULTIPLY(var,const)  MULTIPLY16C16(var,const)
+#else
+#define MULTIPLY(var,const)  ((var) * (const))
+#endif
 
 
 /*
@@ -126,17 +143,19 @@
 
 void fdct(DCTELEM * data)
 {
-    DCTELEM tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
-    DCTELEM tmp10, tmp11, tmp12, tmp13;
-    DCTELEM z1, z2, z3, z4, z5, z11, z13;
+    INT32 tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
+    INT32 tmp10, tmp11, tmp12, tmp13;
+    INT32 z1, z2, z3, z4, z5;
     DCTELEM *dataptr;
     int ctr;
     SHIFT_TEMPS
     
     /* Pass 1: process rows. */
+    /* Note results are scaled up by sqrt(8) compared to a true DCT; */
+    /* furthermore, we scale the results by 2**PASS1_BITS. */
     
     dataptr = data;
-    for (ctr = 7; ctr >= 0; ctr--) {
+    for (ctr = 8-1; ctr >= 0; ctr--) {
         tmp0 = dataptr[0] + dataptr[7];
         tmp7 = dataptr[0] - dataptr[7];
         tmp1 = dataptr[1] + dataptr[6];
@@ -146,47 +165,62 @@ void fdct(DCTELEM * data)
         tmp3 = dataptr[3] + dataptr[4];
         tmp4 = dataptr[3] - dataptr[4];
         
-        /* Even part */
+        /* Even part per LL&M figure 1 --- note that published figure is faulty;
+         * rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
+         */
         
-        tmp10 = tmp0 + tmp3;	/* phase 2 */
+        tmp10 = tmp0 + tmp3;
         tmp13 = tmp0 - tmp3;
         tmp11 = tmp1 + tmp2;
         tmp12 = tmp1 - tmp2;
         
-        dataptr[0] = tmp10 + tmp11; /* phase 3 */
-        dataptr[4] = tmp10 - tmp11;
+        dataptr[0] = (DCTELEM) ((tmp10 + tmp11) << PASS1_BITS);
+        dataptr[4] = (DCTELEM) ((tmp10 - tmp11) << PASS1_BITS);
         
-        z1 = MULTIPLY(tmp12 + tmp13, FIX_0_707106781); /* c4 */
-        dataptr[2] = tmp13 + z1;	/* phase 5 */
-        dataptr[6] = tmp13 - z1;
+        z1 = MULTIPLY(tmp12 + tmp13, FIX_0_541196100);
+        dataptr[2] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp13, FIX_0_765366865),
+                                       CONST_BITS-PASS1_BITS);
+        dataptr[6] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp12, - FIX_1_847759065),
+                                       CONST_BITS-PASS1_BITS);
         
-        /* Odd part */
+        /* Odd part per figure 8 --- note paper omits factor of sqrt(2).
+         * cK represents cos(K*pi/16).
+         * i0..i3 in the paper are tmp4..tmp7 here.
+         */
         
-        tmp10 = tmp4 + tmp5;	/* phase 2 */
-        tmp11 = tmp5 + tmp6;
-        tmp12 = tmp6 + tmp7;
+        z1 = tmp4 + tmp7;
+        z2 = tmp5 + tmp6;
+        z3 = tmp4 + tmp6;
+        z4 = tmp5 + tmp7;
+        z5 = MULTIPLY(z3 + z4, FIX_1_175875602); /* sqrt(2) * c3 */
         
-        /* The rotator is modified from fig 4-8 to avoid extra negations. */
-        z5 = MULTIPLY(tmp10 - tmp12, FIX_0_382683433); /* c6 */
-        z2 = MULTIPLY(tmp10, FIX_0_541196100) + z5; /* c2-c6 */
-        z4 = MULTIPLY(tmp12, FIX_1_306562965) + z5; /* c2+c6 */
-        z3 = MULTIPLY(tmp11, FIX_0_707106781); /* c4 */
+        tmp4 = MULTIPLY(tmp4, FIX_0_298631336); /* sqrt(2) * (-c1+c3+c5-c7) */
+        tmp5 = MULTIPLY(tmp5, FIX_2_053119869); /* sqrt(2) * ( c1+c3-c5+c7) */
+        tmp6 = MULTIPLY(tmp6, FIX_3_072711026); /* sqrt(2) * ( c1+c3+c5-c7) */
+        tmp7 = MULTIPLY(tmp7, FIX_1_501321110); /* sqrt(2) * ( c1+c3-c5-c7) */
+        z1 = MULTIPLY(z1, - FIX_0_899976223); /* sqrt(2) * (c7-c3) */
+        z2 = MULTIPLY(z2, - FIX_2_562915447); /* sqrt(2) * (-c1-c3) */
+        z3 = MULTIPLY(z3, - FIX_1_961570560); /* sqrt(2) * (-c3-c5) */
+        z4 = MULTIPLY(z4, - FIX_0_390180644); /* sqrt(2) * (c5-c3) */
         
-        z11 = tmp7 + z3;		/* phase 5 */
-        z13 = tmp7 - z3;
+        z3 += z5;
+        z4 += z5;
         
-        dataptr[5] = z13 + z2;	/* phase 6 */
-        dataptr[3] = z13 - z2;
-        dataptr[1] = z11 + z4;
-        dataptr[7] = z11 - z4;
+        dataptr[7] = (DCTELEM) DESCALE(tmp4 + z1 + z3, CONST_BITS-PASS1_BITS);
+        dataptr[5] = (DCTELEM) DESCALE(tmp5 + z2 + z4, CONST_BITS-PASS1_BITS);
+        dataptr[3] = (DCTELEM) DESCALE(tmp6 + z2 + z3, CONST_BITS-PASS1_BITS);
+        dataptr[1] = (DCTELEM) DESCALE(tmp7 + z1 + z4, CONST_BITS-PASS1_BITS);
         
         dataptr += 8;		/* advance pointer to next row */
     }
     
-    /* Pass 2: process columns. */
+    /* Pass 2: process columns.
+     * We remove the PASS1_BITS scaling, but leave the results scaled up
+     * by an overall factor of 8.
+     */
     
     dataptr = data;
-    for (ctr = 7; ctr >= 0; ctr--) {
+    for (ctr = 8-1; ctr >= 0; ctr--) {
         tmp0 = dataptr[8*0] + dataptr[8*7];
         tmp7 = dataptr[8*0] - dataptr[8*7];
         tmp1 = dataptr[8*1] + dataptr[8*6];
@@ -196,39 +230,55 @@ void fdct(DCTELEM * data)
         tmp3 = dataptr[8*3] + dataptr[8*4];
         tmp4 = dataptr[8*3] - dataptr[8*4];
         
-        /* Even part */
+        /* Even part per LL&M figure 1 --- note that published figure is faulty;
+         * rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
+         */
         
-        tmp10 = tmp0 + tmp3;	/* phase 2 */
+        tmp10 = tmp0 + tmp3;
         tmp13 = tmp0 - tmp3;
         tmp11 = tmp1 + tmp2;
         tmp12 = tmp1 - tmp2;
         
-        dataptr[8*0] = tmp10 + tmp11; /* phase 3 */
-        dataptr[8*4] = tmp10 - tmp11;
+        dataptr[8*0] = (DCTELEM) DESCALE(tmp10 + tmp11, PASS1_BITS) >> 3;
+        dataptr[8*4] = (DCTELEM) DESCALE(tmp10 - tmp11, PASS1_BITS) >> 3;
         
-        z1 = MULTIPLY(tmp12 + tmp13, FIX_0_707106781); /* c4 */
-        dataptr[8*2] = tmp13 + z1; /* phase 5 */
-        dataptr[8*6] = tmp13 - z1;
+        z1 = MULTIPLY(tmp12 + tmp13, FIX_0_541196100);
+        dataptr[8*2] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp13, FIX_0_765366865),
+                                               CONST_BITS+PASS1_BITS) >> 3;
+        dataptr[8*6] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp12, - FIX_1_847759065),
+                                               CONST_BITS+PASS1_BITS) >> 3;
         
-        /* Odd part */
+        /* Odd part per figure 8 --- note paper omits factor of sqrt(2).
+         * cK represents cos(K*pi/16).
+         * i0..i3 in the paper are tmp4..tmp7 here.
+         */
         
-        tmp10 = tmp4 + tmp5;	/* phase 2 */
-        tmp11 = tmp5 + tmp6;
-        tmp12 = tmp6 + tmp7;
+        z1 = tmp4 + tmp7;
+        z2 = tmp5 + tmp6;
+        z3 = tmp4 + tmp6;
+        z4 = tmp5 + tmp7;
+        z5 = MULTIPLY(z3 + z4, FIX_1_175875602); /* sqrt(2) * c3 */
         
-        /* The rotator is modified from fig 4-8 to avoid extra negations. */
-        z5 = MULTIPLY(tmp10 - tmp12, FIX_0_382683433); /* c6 */
-        z2 = MULTIPLY(tmp10, FIX_0_541196100) + z5; /* c2-c6 */
-        z4 = MULTIPLY(tmp12, FIX_1_306562965) + z5; /* c2+c6 */
-        z3 = MULTIPLY(tmp11, FIX_0_707106781); /* c4 */
+        tmp4 = MULTIPLY(tmp4, FIX_0_298631336); /* sqrt(2) * (-c1+c3+c5-c7) */
+        tmp5 = MULTIPLY(tmp5, FIX_2_053119869); /* sqrt(2) * ( c1+c3-c5+c7) */
+        tmp6 = MULTIPLY(tmp6, FIX_3_072711026); /* sqrt(2) * ( c1+c3+c5-c7) */
+        tmp7 = MULTIPLY(tmp7, FIX_1_501321110); /* sqrt(2) * ( c1+c3-c5-c7) */
+        z1 = MULTIPLY(z1, - FIX_0_899976223); /* sqrt(2) * (c7-c3) */
+        z2 = MULTIPLY(z2, - FIX_2_562915447); /* sqrt(2) * (-c1-c3) */
+        z3 = MULTIPLY(z3, - FIX_1_961570560); /* sqrt(2) * (-c3-c5) */
+        z4 = MULTIPLY(z4, - FIX_0_390180644); /* sqrt(2) * (c5-c3) */
         
-        z11 = tmp7 + z3;		/* phase 5 */
-        z13 = tmp7 - z3;
+        z3 += z5;
+        z4 += z5;
         
-        dataptr[8*5] = z13 + z2; /* phase 6 */
-        dataptr[8*3] = z13 - z2;
-        dataptr[8*1] = z11 + z4;
-        dataptr[8*7] = z11 - z4;
+        dataptr[8*7] = (DCTELEM) DESCALE(tmp4 + z1 + z3,
+                                               CONST_BITS+PASS1_BITS) >> 3;
+        dataptr[8*5] = (DCTELEM) DESCALE(tmp5 + z2 + z4,
+                                               CONST_BITS+PASS1_BITS) >> 3;
+        dataptr[8*3] = (DCTELEM) DESCALE(tmp6 + z2 + z3,
+                                               CONST_BITS+PASS1_BITS) >> 3;
+        dataptr[8*1] = (DCTELEM) DESCALE(tmp7 + z1 + z4,
+                                               CONST_BITS+PASS1_BITS) >> 3;
         
         dataptr++;			/* advance pointer to next column */
     }
