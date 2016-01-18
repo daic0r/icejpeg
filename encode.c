@@ -49,23 +49,14 @@ const byte jpeg_CRAZY[] =
 };
 
 byte jpeg_qtbl_luminance[] = {
-//	16, 11, 10, 16, 124, 140, 151, 161,
-//	12, 12, 14, 19, 126, 158, 160, 155,
-//	14, 13, 16, 24, 140, 157, 169, 156,
-//	14, 17, 22, 29, 151, 187, 180, 162,
-//	18, 22, 37, 56, 168, 109, 103, 177,
-//	24, 35, 55, 64, 181, 104, 113, 192,
-//	49, 64, 78, 87, 103, 121, 120, 101,
-//	72, 92, 95, 98, 112, 100, 103, 199
-    
-    16,  11,  10,  16,  24,  40,  51,  61,
-    12,  12,  14,  19,  26,  58,  60,  55,
-    14,  13,  16,  24,  40,  57,  69,  56,
-    14,  17,  22,  29,  51,  87,  80,  62,
-    18,  22,  37,  56,  68, 109, 103,  77,
-    24,  35,  55,  64,  81, 104, 113,  92,
-    49,  64,  78,  87, 103, 121, 120, 101,
-    72,  92,  95,  98, 112, 100, 103,  99
+	16, 11, 10, 16, 124, 140, 151, 161,
+	12, 12, 14, 19, 126, 158, 160, 155,
+	14, 13, 16, 24, 140, 157, 169, 156,
+	14, 17, 22, 29, 151, 187, 180, 162,
+	18, 22, 37, 56, 168, 109, 103, 177,
+	24, 35, 55, 64, 181, 104, 113, 192,
+	49, 64, 78, 87, 103, 121, 120, 101,
+	72, 92, 95, 98, 112, 100, 103, 199
 };
 
 byte jpeg_qtbl_chrominance[] = {
@@ -112,6 +103,7 @@ struct __ice_env
 	int buf_pos;
 	unsigned char bits_remaining;
     int scan_buf_size;
+    byte quality;
 } iceenv;
 
 
@@ -962,8 +954,13 @@ static int create_bitstream()
                 
 				du_index += (cur_rlc->info & 0xF0) >> 4;
 				du_index++;
+                if (du_index > 64)
+                {
+                    printf("TOO MANY COEFS\n");
+                    getc(stdin);
+                }
 				// Reset index if we've processed all 64 samples OR encountered an EOB
-				if (du_index >= 64 || cur_rlc->value.length == 0xFF)
+				if (du_index == 64 || cur_rlc->value.length == 0xFF)
 				{
 					du_index = 0;
 					is_dc = 1;
@@ -1144,7 +1141,35 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
         jpeg_qtbl_chrominance[i] /= 2;
     }
     
+    iceenv.quality = 50;
+    
 	return ERR_OK;
+}
+
+void icejpeg_setquality(unsigned char quality)
+{
+    if (quality >= 0 && quality <= 100)
+        iceenv.quality = quality;
+    else
+        return;
+    
+    int scale = iceenv.quality < 50 ? 5000 / iceenv.quality : 200 - 2 * iceenv.quality;
+    
+    int i = 0;
+    for (i = 0; i < 64; i++)
+    {
+        jpeg_qtbl_luminance[i] = (scale * jpeg_qtbl_luminance[i] + 50) / 100;
+        if (jpeg_qtbl_luminance[i] < 1)
+            jpeg_qtbl_luminance[i] = 1;
+        if (jpeg_qtbl_luminance[i] > 255)
+            jpeg_qtbl_luminance[i] = 255;
+        
+        jpeg_qtbl_chrominance[i] = (scale * jpeg_qtbl_chrominance[i] + 50) / 100;
+        if (jpeg_qtbl_chrominance[i] < 1)
+            jpeg_qtbl_chrominance[i] = 1;
+        if (jpeg_qtbl_chrominance[i] > 255)
+            jpeg_qtbl_chrominance[i] = 255;
+    }
 }
 
 int icejpeg_write(void)

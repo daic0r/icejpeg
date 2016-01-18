@@ -625,6 +625,12 @@ int decode_du(byte id_component)
 #endif
     }
     
+    if (block_index > 64)
+    {
+        printf("CAUTION: Too many coefs in MCU [%d,%d]\n", cur_mcu_x, cur_mcu_y);
+        getc(stdin);
+    }
+    
 #ifdef _JPEG_DEBUG
     if (cur_mcu_x == 0 && cur_mcu_y == 10)    printf("\n");
 #endif
@@ -837,6 +843,8 @@ int process_segment(void)
             err = decode_scan();
             err = upsample();
             err = create_image();
+            eoi = 1;
+            return err;
             break;
 		case 0xFFC1:
 		case 0xFFC2:

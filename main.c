@@ -44,7 +44,7 @@ static void generate_constants()
 int main(int argc, const char** argv)
 {
   
-    const char * basename = "smiley";
+    const char * basename = "example";
     
     char jpegfile[40];
     strcpy(jpegfile, basename);
@@ -75,6 +75,7 @@ int main(int argc, const char** argv)
     }
 
 	icejpeg_encode_init("out.jpg", my_image, img_width, img_height, 1, 1, 1);
+    icejpeg_setquality(100);
 	err = icejpeg_write();
 	icejpeg_encode_cleanup();
 
