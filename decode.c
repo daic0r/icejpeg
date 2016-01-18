@@ -843,8 +843,6 @@ int process_segment(void)
             err = decode_scan();
             err = upsample();
             err = create_image();
-            eoi = 1;
-            return err;
             break;
 		case 0xFFC1:
 		case 0xFFC2:
