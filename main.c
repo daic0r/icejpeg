@@ -75,7 +75,8 @@ int main(int argc, const char** argv)
     }
 
 	icejpeg_encode_init("out.jpg", my_image, img_width, img_height, 1, 1, 1);
-    icejpeg_setquality(100);
+    icejpeg_setquality(40);
+    icejpeg_set_restart_markers(1);
 	err = icejpeg_write();
 	icejpeg_encode_cleanup();
 

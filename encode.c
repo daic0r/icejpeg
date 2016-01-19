@@ -104,6 +104,11 @@ struct __ice_env
 	unsigned char bits_remaining;
     int scan_buf_size;
     byte quality;
+    
+    // Restart markers related stuff
+    byte cur_rst_marker;
+    int use_rst_markers;
+    int restart_interval, rst_interval_counter;
 } iceenv;
 
 
@@ -869,6 +874,21 @@ static int gen_huffman_tables(void)
 	return ERR_OK;
 }
 
+static inline int advance_scan_buffer(void)
+{
+    iceenv.buf_pos++;
+    
+    if (iceenv.buf_pos >= iceenv.scan_buf_size)
+    {
+        iceenv.scan_buffer = (byte*) realloc(iceenv.scan_buffer, iceenv.scan_buf_size + 0xFFFF);
+        memset(iceenv.scan_buffer + iceenv.scan_buf_size, 0, 0xFFFF);
+        iceenv.scan_buf_size += 0xFFFF;
+        if (!iceenv.scan_buffer)
+            return ERR_SCAN_BUFFER_OVERFLOW;
+    }
+    return ERR_OK;
+}
+
 // Writes a bit string of a give length to the bit stream
 static inline int write_bits(unsigned short value, unsigned char length)
 {
@@ -891,21 +911,32 @@ static inline int write_bits(unsigned short value, unsigned char length)
 			iceenv.bits_remaining = 8;
 			// Insert stuff byte if necessary
 			if (iceenv.scan_buffer[iceenv.buf_pos] == 0xFF)
-                iceenv.buf_pos++;
-			iceenv.buf_pos++;
-
-			if (iceenv.buf_pos >= iceenv.scan_buf_size)
-            {
-                iceenv.scan_buffer = (byte*) realloc(iceenv.scan_buffer, iceenv.scan_buf_size + 0xFFFF);
-                memset(iceenv.scan_buffer + iceenv.scan_buf_size, 0, 0xFFFF);
-                iceenv.scan_buf_size += 0xFFFF;
-                if (!iceenv.scan_buffer)
-                    return ERR_SCAN_BUFFER_OVERFLOW;
-            }
+                advance_scan_buffer();
+            advance_scan_buffer();
 		}
 	}
 
 	return ERR_OK;
+}
+
+inline static void fill_current_byte(void)
+{
+    if (iceenv.bits_remaining < 8)
+    {
+        iceenv.scan_buffer[iceenv.buf_pos] |= (1 << iceenv.bits_remaining) - 1;
+        advance_scan_buffer();
+        iceenv.bits_remaining = 8;
+    }
+}
+
+inline static void write_rst_marker(void)
+{
+    fill_current_byte();
+    iceenv.scan_buffer[iceenv.buf_pos] = 0xFF;
+    advance_scan_buffer();
+    iceenv.scan_buffer[iceenv.buf_pos] = 0xD0 | iceenv.cur_rst_marker;
+    advance_scan_buffer();
+    iceenv.cur_rst_marker = (iceenv.cur_rst_marker + 1) & 7;
 }
 
 static int create_bitstream()
@@ -989,6 +1020,15 @@ static int create_bitstream()
 		}
 		//break;
 		iceenv.cur_mcu_x++;
+        if (iceenv.use_rst_markers)
+        {
+            iceenv.rst_interval_counter++;
+            if (iceenv.rst_interval_counter == iceenv.restart_interval)
+            {
+                write_rst_marker();
+                iceenv.rst_interval_counter = 0;
+            }
+        }
 		if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
 		{
 			iceenv.cur_mcu_x = 0;
@@ -1002,11 +1042,8 @@ static int create_bitstream()
 	printf("Finished bitstream at %d bytes\n", iceenv.buf_pos);
 #endif
     
-    if (iceenv.bits_remaining < 8)
-    {
-        iceenv.scan_buffer[iceenv.buf_pos++] |= (1 << iceenv.bits_remaining) - 1;
-    }
-
+    fill_current_byte();
+    
 	return ERR_OK;
 }
 
@@ -1039,6 +1076,16 @@ static int encode(void)
             //icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x] = icecomp[i].rlc_index;
         }
         //break;
+        if (iceenv.use_rst_markers)
+        {
+            iceenv.rst_interval_counter++;
+            if (iceenv.rst_interval_counter == iceenv.restart_interval)
+            {
+                for (i = 0; i < iceenv.num_components; i++)
+                    icecomp[i].prev_dc = 0;
+                iceenv.rst_interval_counter = 0;
+            }
+        }
         iceenv.cur_mcu_x++;
         if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
         {
@@ -1177,6 +1224,12 @@ void icejpeg_setquality(unsigned char quality)
         if (jpeg_qtbl_chrominance[i] > 255)
             jpeg_qtbl_chrominance[i] = 255;
     }
+}
+
+void icejpeg_set_restart_markers(int userst)
+{
+    iceenv.use_rst_markers = userst;
+    iceenv.restart_interval = iceenv.num_mcu_x;
 }
 
 int icejpeg_write(void)
@@ -1372,6 +1425,22 @@ static int write_sos(FILE *f)
     return ERR_OK;
 }
 
+static int write_dri(FILE *f)
+{
+    word marker = 0xDDFF;
+    word length = flip_byte_order(4);
+    
+    fwrite(&marker, sizeof(word), 1, f);
+    fwrite(&length, sizeof(word), 1, f);
+    
+    // For now we'll output a restart marker after every line of MCUs
+    word rst_int = flip_byte_order(iceenv.num_mcu_x);
+    
+    fwrite(&rst_int, sizeof(word), 1, f);
+    
+    return ERR_OK;
+}
+
 static int write_to_file(void)
 {
     FILE *f;
@@ -1387,6 +1456,8 @@ static int write_to_file(void)
     write_app0(f);
     write_dqt(f);
     write_dht(f);
+    if (iceenv.use_rst_markers)
+        write_dri(f);
     write_sof0(f);
     write_sos(f);
     
