@@ -315,6 +315,7 @@ static int add_rlc(int comp, int zeros, int category, int bits, int bit_length)
     if (icecomp[comp].rlc_index == icecomp[comp].rlc_size)
     {
         icecomp[comp].rlc = (struct jpeg_zrlc**) realloc(icecomp[comp].rlc, (icecomp[comp].rlc_size + 0xFFFF) * sizeof(struct jpeg_zrlc*));
+        memset(icecomp[comp].rlc + icecomp[comp].rlc_size, 0, 0xFFFF * sizeof(struct jpeg_zrlc*));
         icecomp[comp].rlc_size += 0xFFFF;
         if (!icecomp[comp].rlc)
         {
@@ -421,7 +422,7 @@ static int encode_du(int comp, int du_x, int du_y)
     };
     
 	// Only put an EOB if we don't have a zero run at the end
-	if (end_pointer < iceenv.block + 64)
+	if (block < iceenv.block + 64)
 	{
 #ifdef _JPEG_ENCODER_DEBUG
         //printf("Block prematurely terminated after %d entries.\n", end_pointer - iceenv.block);
@@ -464,7 +465,7 @@ static void get_code_stats(void)
             else
                 c->ac_code_count[c->rlc[j]->info]++;
             
-            du_index += (c->rlc[j]->info & 0xF) >> 4;
+            du_index += (c->rlc[j]->info & 0xF0) >> 4;
             du_index++;
 			// Reset index if we've processed all 64 samples OR encountered an EOB
             if (du_index == 64 || c->rlc[j]->value.length == 0xFF)
@@ -910,7 +911,8 @@ static inline int write_bits(unsigned short value, unsigned char length)
 static int create_bitstream()
 {
 	int i;
-
+    int mcu_x = 0, mcu_y = 0;
+    
     iceenv.scan_buf_size = 0xFFFF;
     iceenv.scan_buffer = (byte*) malloc(iceenv.scan_buf_size);
 	memset(iceenv.scan_buffer, 0, 0xFFFF);
@@ -954,14 +956,19 @@ static int create_bitstream()
                 
 				du_index += (cur_rlc->info & 0xF0) >> 4;
 				du_index++;
-                if (du_index > 64)
-                {
-                    printf("TOO MANY COEFS\n");
-                    getc(stdin);
-                }
 				// Reset index if we've processed all 64 samples OR encountered an EOB
 				if (du_index == 64 || cur_rlc->value.length == 0xFF)
 				{
+                    // printf("Done writing (%d,%d) (%d)\n", mcu_x, mcu_y, i);
+                    if (i == 2)
+                    {
+                        mcu_x++;
+                        if (mcu_x == iceenv.num_mcu_x)
+                        {
+                            mcu_x = 0;
+                            mcu_y++;
+                        }
+                    }
 					du_index = 0;
 					is_dc = 1;
 					num_du_per_mcu--;
@@ -995,7 +1002,7 @@ static int create_bitstream()
 	printf("Finished bitstream at %d bytes\n", iceenv.buf_pos);
 #endif
     
-    if (iceenv.bits_remaining)
+    if (iceenv.bits_remaining < 8)
     {
         iceenv.scan_buffer[iceenv.buf_pos++] |= (1 << iceenv.bits_remaining) - 1;
     }
@@ -1135,11 +1142,11 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 
 	iceenv.bits_remaining = 8;
     
-    for (i = 0; i < 64; i++)
-    {
-        jpeg_qtbl_luminance[i] /= 2;
-        jpeg_qtbl_chrominance[i] /= 2;
-    }
+//    for (i = 0; i < 64; i++)
+//    {
+//        jpeg_qtbl_luminance[i] /= 2;
+//        jpeg_qtbl_chrominance[i] /= 2;
+//    }
     
     iceenv.quality = 50;
     
