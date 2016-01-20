@@ -23,31 +23,6 @@
 #define CRG -107
 #define CRB -21
 
-const int color_conversion_coeff[3][4] = { { YR, YG, YB, 0 }, { CBR, CBG, CBB, 128 }, { CRR, CRG, CRB, 128} };
-
-const byte jpeg_zz[] = {
-    0, 1, 5, 6, 14, 15, 27, 28,
-    2, 4, 7, 13, 16, 26, 29, 42,
-    3, 8, 12, 17, 25, 30, 41, 43,
-    9, 11, 18, 24, 31, 40, 44, 53,
-    10, 19, 23, 32, 39, 45, 52, 54,
-    20, 22, 33, 38, 46, 51, 55, 60,
-    21, 34, 37, 47, 50, 56, 59, 61,
-    35, 36, 48, 49, 57, 58, 62, 63
-};
-
-const byte jpeg_CRAZY[] =
-{
-    0, 1, 8, 16, 9, 2, 3, 10,
-    17, 24, 32, 25, 18, 11, 4, 5,
-    12, 19, 26, 33, 40, 48, 41, 34,
-    27, 20, 13, 6, 7, 14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36,
-    29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46,
-    53, 60, 61, 54, 47, 55, 62, 63
-};
-
 byte jpeg_qtbl_luminance[] = {
 	16, 11, 10, 16, 124, 140, 151, 161,
 	12, 12, 14, 19, 126, 158, 160, 155,
@@ -321,12 +296,10 @@ static int add_rlc(int comp, int zeros, int category, int bits, int bit_length)
     if (icecomp[comp].rlc_index == icecomp[comp].rlc_size)
     {
         icecomp[comp].rlc = (struct jpeg_zrlc**) realloc(icecomp[comp].rlc, (icecomp[comp].rlc_size + 0xFFFF) * sizeof(struct jpeg_zrlc*));
-        memset(icecomp[comp].rlc + icecomp[comp].rlc_size, 0, 0xFFFF * sizeof(struct jpeg_zrlc*));
+		if (!icecomp[comp].rlc)
+			return ERR_OUT_OF_MEMORY;
+		memset(icecomp[comp].rlc + icecomp[comp].rlc_size, 0, 0xFFFF * sizeof(struct jpeg_zrlc*));
         icecomp[comp].rlc_size += 0xFFFF;
-        if (!icecomp[comp].rlc)
-        {
-            return ERR_RLC_BUFFER_OVERFLOW;
-        }
     }
  
     return ERR_OK;
@@ -377,7 +350,7 @@ static int encode_du(int comp, int du_x, int du_y)
 	// Zigzag reordering
 	int *block = (int*)malloc(64 * sizeof(int));
 	for (x = 0; x < 64; x++)
-		block[jpeg_zz[x]] = iceenv.block[x];
+		block[jpeg_zzleft[x]] = iceenv.block[x];
 	memcpy(iceenv.block, block, 64 * sizeof(int));
 	free(block);
 	block = 0;
@@ -883,10 +856,10 @@ static inline int advance_scan_buffer(void)
     if (iceenv.buf_pos >= iceenv.scan_buf_size)
     {
         iceenv.scan_buffer = (byte*) realloc(iceenv.scan_buffer, iceenv.scan_buf_size + 0xFFFF);
-        memset(iceenv.scan_buffer + iceenv.scan_buf_size, 0, 0xFFFF);
+		if (!iceenv.scan_buffer)
+			return ERR_OUT_OF_MEMORY;
+		memset(iceenv.scan_buffer + iceenv.scan_buf_size, 0, 0xFFFF);
         iceenv.scan_buf_size += 0xFFFF;
-        if (!iceenv.scan_buffer)
-            return ERR_SCAN_BUFFER_OVERFLOW;
     }
     return ERR_OK;
 }
@@ -951,6 +924,7 @@ static int create_bitstream()
 	memset(iceenv.scan_buffer, 0, 0xFFFF);
     
 	iceenv.cur_mcu_x = iceenv.cur_mcu_y = 0;
+	iceenv.rst_interval_counter = 0;
 	for (i = 0; i < iceenv.num_components; i++)
 		icecomp[i].rlc_index = 0;
 	// Encode every MCU
@@ -1078,6 +1052,9 @@ static int encode(void)
             //icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x] = icecomp[i].rlc_index;
         }
         //break;
+
+		// Count MCUs if restart markers are used
+		// If a marker must be written, reset DC prediction as well
         if (iceenv.use_rst_markers)
         {
             iceenv.rst_interval_counter++;
@@ -1174,6 +1151,7 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, struct jpeg_
 	iceenv.mcu_height = iceenv.max_sy << 3;
 	iceenv.num_mcu_x = (iceenv.width + iceenv.mcu_width - 1) / iceenv.mcu_width;
 	iceenv.num_mcu_y = (iceenv.height + iceenv.mcu_height - 1) / iceenv.mcu_height;
+	iceenv.restart_interval = iceenv.num_mcu_x;
 
 	for (i = 0; i < iceenv.num_components; i++)
 	{
@@ -1319,9 +1297,9 @@ static int write_dqt(FILE *f)
     byte qtbl_chr[64];
     int i =0;
 	for (i = 0; i < 64; i++)
-		qtbl_lum[jpeg_zz[i]] = CLAMPQNT((iceenv.quality_scale_factor * jpeg_qtbl_luminance[i] + 50) / 100);
+		qtbl_lum[jpeg_zzleft[i]] = CLAMPQNT((iceenv.quality_scale_factor * jpeg_qtbl_luminance[i] + 50) / 100);
     for (i = 0; i < 64; i++)
-        qtbl_chr[jpeg_zz[i]] = CLAMPQNT((iceenv.quality_scale_factor * jpeg_qtbl_chrominance[i] + 50) / 100);
+        qtbl_chr[jpeg_zzleft[i]] = CLAMPQNT((iceenv.quality_scale_factor * jpeg_qtbl_chrominance[i] + 50) / 100);
     
     fwrite(&marker, sizeof(word), 1, f);
     fwrite(&length, sizeof(word), 1, f);

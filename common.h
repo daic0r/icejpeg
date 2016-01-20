@@ -97,6 +97,9 @@ struct jpeg_sof0
 
 #pragma pack(pop)
 
+extern const byte jpeg_zzleft[];
+extern const byte jpeg_zzright[];
+
 int rnd(float x);
 
 #endif /* common_h */

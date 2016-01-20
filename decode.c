@@ -39,18 +39,6 @@ struct jpeg_component *components;
 #pragma pack(push)
 #pragma pack(1)
 
-const byte jpeg_zigzag[] =
-{
-    0, 1, 8, 16, 9, 2, 3, 10,
-    17, 24, 32, 25, 18, 11, 4, 5,
-    12, 19, 26, 33, 40, 48, 41, 34,
-    27, 20, 13, 6, 7, 14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36,
-    29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46,
-    53, 60, 61, 54, 47, 55, 62, 63
-};
-
 typedef byte* jpeg_dqttable;
 jpeg_dqttable qt_tables[4];
 
@@ -65,8 +53,6 @@ typedef struct jpeg_huffman_code** jpeg_huffman_table;	// array of pointers to a
 
 jpeg_huffman_table huff_dc[MAX_DC_TABLES];
 jpeg_huffman_table huff_ac[MAX_AC_TABLES];
-
-
 
 #pragma pack(pop)
 
@@ -419,8 +405,8 @@ int process_sof0(void)
         buf_pos += sizeof(struct jpeg_sof0_component_info);
         
         components[i].qt_table = comp_info[i].qt_table;
-        components[i].sx = (comp_info[i].sampling_factors & 0xF0) >> 4;
-        components[i].sy = comp_info[i].sampling_factors & 0xF;
+        components[i].sx = UPR4(comp_info[i].sampling_factors);
+        components[i].sy = LWR4(comp_info[i].sampling_factors);
         components[i].prev_dc = 0;
         
         // Update maximum sampling factors
@@ -544,7 +530,7 @@ int decode_du(byte id_component)
     
     memset(block, 0, sizeof(int) * 64);
     
-    jpeg_huffman_table cur_table = huff_dc[(components[id_component].id_dht & 0xF0) >> 4];
+    jpeg_huffman_table cur_table = huff_dc[UPR4(components[id_component].id_dht)];
     
     cur_code = get_next_code(cur_table);
     
@@ -597,7 +583,7 @@ int decode_du(byte id_component)
 #endif
         
         // Skip zeros
-        block_index += (cur_code & 0xF0) >> 4;
+        block_index += UPR4(cur_code);
         if (block_index > 63)
             break;
         
@@ -613,7 +599,7 @@ int decode_du(byte id_component)
     if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("AC value: %d\n", value);
 #endif
         
-        byte actual_index = jpeg_zigzag[block_index];
+        byte actual_index = jpeg_zzright[block_index];
         
         
         // Dequantize and unzigzag at the same time
