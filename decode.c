@@ -399,8 +399,8 @@ int process_sof0(void)
     if (sof0.num_components != 1 && sof0.num_components != 3)
         return ERR_INVALID_NUMBER_OF_COMP;
     
-    sof0.width = flip_byte_order(sof0.width);
-    sof0.height = flip_byte_order(sof0.height);
+    sof0.width = FLIP(sof0.width);
+    sof0.height = FLIP(sof0.height);
     
     struct jpeg_sof0_component_info comp_info[3];
     //comp_info[0] = comp_info[1] = comp_info[2] = 0;

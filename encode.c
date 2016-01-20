@@ -104,6 +104,7 @@ struct __ice_env
 	unsigned char bits_remaining;
     int scan_buf_size;
     byte quality;
+	int quality_scale_factor;
     
     // Restart markers related stuff
     byte cur_rst_marker;
@@ -360,6 +361,7 @@ static int encode_du(int comp, int du_x, int du_y)
         for (x = 0; x < 8; x++)
         {
             register int value = iceenv.block[(y * 8) + x];
+			register int quant_factor = CLAMPQNT((iceenv.quality_scale_factor * jpeg_qtbl_selector[comp][(y * 8) + x] + 50) / 100);
             // Right-shift rounds towards negative infinity, so we're gonna do our
             // computations with positive numbers and then put the sign back
             // after we're done
@@ -367,7 +369,7 @@ static int encode_du(int comp, int du_x, int du_y)
             if (sign < 0)
                 value *= sign;
             value = UPSCALE(value);
-            value /= jpeg_qtbl_selector[comp][(y * 8) + x];
+			value /= quant_factor;
             iceenv.block[(y * 8) + x] = sign * DESCALE(value);
         }
     }
@@ -470,7 +472,7 @@ static void get_code_stats(void)
             else
                 c->ac_code_count[c->rlc[j]->info]++;
             
-            du_index += (c->rlc[j]->info & 0xF0) >> 4;
+			du_index += UPR4(c->rlc[j]->info);
             du_index++;
 			// Reset index if we've processed all 64 samples OR encountered an EOB
             if (du_index == 64 || c->rlc[j]->value.length == 0xFF)
@@ -985,7 +987,7 @@ static int create_bitstream()
                 //    printf("Wrote code (%d,%d), category %d, bits %d\n", (cur_rlc->info & 0xF0) >> 4, cur_rlc->info & 0xF, cur_rlc->value.length, cur_rlc->value.bits);
 #endif
                 
-				du_index += (cur_rlc->info & 0xF0) >> 4;
+				du_index += UPR4(cur_rlc->info);
 				du_index++;
 				// Reset index if we've processed all 64 samples OR encountered an EOB
 				if (du_index == 64 || cur_rlc->value.length == 0xFF)
@@ -1104,36 +1106,31 @@ static int encode(void)
     return ERR_OK;
 }
 
-int icejpeg_encode_init(const char *filename, unsigned char *image, int width, int height, int y_samp, int cb_samp, int cr_samp)
+int icejpeg_encode_init(const char *filename, unsigned char *image, struct jpeg_encoder_settings *settings)
 {
 	memset(&iceenv, 0, sizeof(struct __ice_env));
 	memset(icecomp, 0, sizeof(struct jpeg_encode_component) * 3);
 
 	strcpy(iceenv.outfile, filename);
-	if ((!cb_samp && cr_samp) ||
-		(!cr_samp && cb_samp))
+	if (settings->num_components != 1 && settings->num_components != 3)
 	{
 		return ERR_INVALID_NUMBER_OF_COMP;
 	}
 
-	if (!cb_samp && !cr_samp)
-		iceenv.num_components = 1;
-	else
-		iceenv.num_components = 3;
-
-	iceenv.width = width;
-	iceenv.height = height;
+	iceenv.num_components = settings->num_components;
+	iceenv.width = settings->width;
+	iceenv.height = settings->height;
 	iceenv.max_sx = iceenv.max_sy = 0;
-	iceenv.image = (int *)malloc(width * height * iceenv.num_components * sizeof(int));
+	iceenv.image = (int *)malloc(iceenv.width * iceenv.height * iceenv.num_components * sizeof(int));
 	if (!iceenv.image)
 		return ERR_OUT_OF_MEMORY;
     
     // Copy image to our buffer and perform YCbCr->RGB conversion
     int x, y;
     int *cur_image = iceenv.image;
-    for (y = 0; y < height; y++)
+    for (y = 0; y < iceenv.height; y++)
     {
-        for (x = 0; x < width; x++)
+        for (x = 0; x < iceenv.width; x++)
         {
             if (iceenv.num_components == 3)
             {
@@ -1156,12 +1153,12 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
         }
     }
 
-	icecomp[0].sx = y_samp;
-	icecomp[0].sy = y_samp;
-	icecomp[1].sx = cb_samp;
-	icecomp[1].sy = cb_samp;
-	icecomp[2].sx = cr_samp;
-	icecomp[2].sy = cr_samp;
+	icecomp[0].sx = settings->sampling_factors[0].sx;
+	icecomp[0].sy = settings->sampling_factors[0].sy;
+	icecomp[1].sx = settings->sampling_factors[1].sx;
+	icecomp[1].sy = settings->sampling_factors[1].sy;
+	icecomp[2].sx = settings->sampling_factors[2].sx;
+	icecomp[2].sy = settings->sampling_factors[2].sy;
 
 	int i = 0;
 	for (; i < iceenv.num_components; i++)
@@ -1180,7 +1177,7 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 	for (i = 0; i < iceenv.num_components; i++)
 	{
 		icecomp[i].width = (icecomp[i].sx << 3) * iceenv.num_mcu_x; // (width * icecomp[i].sx + iceenv.max_sx - 1) / iceenv.max_sx;
-		icecomp[i].height = height; // (height * icecomp[i].sy + iceenv.max_sy - 1) / iceenv.max_sy;
+		icecomp[i].height = iceenv.height; // (height * icecomp[i].sy + iceenv.max_sy - 1) / iceenv.max_sy;
 		icecomp[i].stride = (icecomp[i].sx << 3) * iceenv.num_mcu_x;
 
 															 
@@ -1195,7 +1192,7 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, int width, i
 //        jpeg_qtbl_chrominance[i] /= 2;
 //    }
     
-    iceenv.quality = 50;
+	icejpeg_setquality(settings->quality);
     
 	return ERR_OK;
 }
@@ -1207,23 +1204,7 @@ void icejpeg_setquality(unsigned char quality)
     else
         return;
     
-    int scale = iceenv.quality < 50 ? 5000 / iceenv.quality : 200 - 2 * iceenv.quality;
-    
-    int i = 0;
-    for (i = 0; i < 64; i++)
-    {
-        jpeg_qtbl_luminance[i] = (scale * jpeg_qtbl_luminance[i] + 50) / 100;
-        if (jpeg_qtbl_luminance[i] < 1)
-            jpeg_qtbl_luminance[i] = 1;
-        if (jpeg_qtbl_luminance[i] > 255)
-            jpeg_qtbl_luminance[i] = 255;
-        
-        jpeg_qtbl_chrominance[i] = (scale * jpeg_qtbl_chrominance[i] + 50) / 100;
-        if (jpeg_qtbl_chrominance[i] < 1)
-            jpeg_qtbl_chrominance[i] = 1;
-        if (jpeg_qtbl_chrominance[i] > 255)
-            jpeg_qtbl_chrominance[i] = 255;
-    }
+    iceenv.quality_scale_factor = iceenv.quality < 50 ? 5000 / iceenv.quality : 200 - 2 * iceenv.quality;
 }
 
 void icejpeg_set_restart_markers(int userst)
@@ -1264,11 +1245,17 @@ void icejpeg_encode_cleanup()
 	for (i = 0; i < iceenv.num_components; i++)
 	{
 		if (icecomp[i].pixels)
+		{
 			free(icecomp[i].pixels);
+			icecomp[i].pixels = 0;
+		}
 	}
 
 	if (iceenv.image)
+	{
 		free(iceenv.image);
+		iceenv.image = 0;
+	}
 
     if (iceenv.scan_buffer)
     {
@@ -1282,12 +1269,20 @@ void icejpeg_encode_cleanup()
         while (j < icecomp[j].rlc_index)
             free(icecomp[i].rlc[j++]);
 		if (icecomp[i].rlc)
+		{
 			free(icecomp[i].rlc);
+			icecomp[i].rlc = 0;
+		}
 		if (icecomp[i].dc_dht.codes)
+		{
 			free(icecomp[i].dc_dht.codes);
+			icecomp[i].dc_dht.codes = 0;
+		}
 		if (icecomp[i].ac_dht.codes)
+		{
 			free(icecomp[i].ac_dht.codes);
-
+			icecomp[i].ac_dht.codes = 0;
+		}
     }
 }
 
@@ -1297,7 +1292,7 @@ void icejpeg_encode_cleanup()
 static int write_app0(FILE *f)
 {
     word marker = 0xE0FF;
-    word length = flip_byte_order(sizeof(struct jpeg_app0) + 2);
+    word length = FLIP(sizeof(struct jpeg_app0) + 2);
     
     struct jpeg_app0 app0;
     app0.maj_revision = 1;
@@ -1305,7 +1300,7 @@ static int write_app0(FILE *f)
     strcpy(app0.strjfif, "JFIF");
     app0.thumb_width = app0.thumb_height = 0;
     app0.xy_dens_unit = 1;
-    app0.xdensity = app0.ydensity = flip_byte_order(72);
+    app0.xdensity = app0.ydensity = FLIP(72);
     
     fwrite(&marker, sizeof(word), 1, f);
     fwrite(&length, sizeof(word), 1, f);
@@ -1317,15 +1312,15 @@ static int write_app0(FILE *f)
 static int write_dqt(FILE *f)
 {
     word marker = 0xDBFF;
-    word length = flip_byte_order(2 * 65 + 2);
+    word length = FLIP(2 * 65 + 2);
     
     byte qtbl_lum[64];
     byte qtbl_chr[64];
     int i =0;
+	for (i = 0; i < 64; i++)
+		qtbl_lum[jpeg_zz[i]] = CLAMPQNT((iceenv.quality_scale_factor * jpeg_qtbl_luminance[i] + 50) / 100);
     for (i = 0; i < 64; i++)
-        qtbl_lum[jpeg_zz[i]] = jpeg_qtbl_luminance[i];
-    for (i = 0; i < 64; i++)
-        qtbl_chr[jpeg_zz[i]] = jpeg_qtbl_chrominance[i];
+        qtbl_chr[jpeg_zz[i]] = CLAMPQNT((iceenv.quality_scale_factor * jpeg_qtbl_chrominance[i] + 50) / 100);
     
     fwrite(&marker, sizeof(word), 1, f);
     fwrite(&length, sizeof(word), 1, f);
@@ -1342,7 +1337,7 @@ static int write_dht(FILE *f)
     int num_tables = iceenv.num_components * 2;
     
     word marker = 0xC4FF;
-    word length = flip_byte_order(num_tables + num_tables*16 + (iceenv.dc_huff_numcodes[0] + iceenv.dc_huff_numcodes[1] + iceenv.dc_huff_numcodes[2] + iceenv.ac_huff_numcodes[0] + iceenv.ac_huff_numcodes[1]  + iceenv.ac_huff_numcodes[2]) + 2);
+    word length = FLIP(num_tables + num_tables*16 + (iceenv.dc_huff_numcodes[0] + iceenv.dc_huff_numcodes[1] + iceenv.dc_huff_numcodes[2] + iceenv.ac_huff_numcodes[0] + iceenv.ac_huff_numcodes[1]  + iceenv.ac_huff_numcodes[2]) + 2);
     
     fwrite(&marker, sizeof(word), 1, f);
     fwrite(&length, sizeof(word), 1, f);
@@ -1370,13 +1365,13 @@ static int write_dht(FILE *f)
 static int write_sof0(FILE *f)
 {
     word marker = 0xC0FF;
-    word length = flip_byte_order(8 + iceenv.num_components * 3);
+    word length = FLIP(8 + iceenv.num_components * 3);
     
     struct jpeg_sof0 sof0;
     
     sof0.num_components = iceenv.num_components;
-    sof0.width = flip_byte_order(iceenv.width);
-    sof0.height = flip_byte_order(iceenv.height);
+    sof0.width = FLIP(iceenv.width);
+    sof0.height = FLIP(iceenv.height);
     sof0.precision = 8;
     
     fwrite(&marker, sizeof(word), 1, f);
@@ -1401,7 +1396,7 @@ static int write_sof0(FILE *f)
 static int write_sos(FILE *f)
 {
     word marker = 0xDAFF;
-    word length = flip_byte_order(6 + 2*iceenv.num_components);
+    word length = FLIP(6 + 2*iceenv.num_components);
     
     fwrite(&marker, sizeof(word), 1, f);
     fwrite(&length, sizeof(word), 1, f);
@@ -1428,13 +1423,13 @@ static int write_sos(FILE *f)
 static int write_dri(FILE *f)
 {
     word marker = 0xDDFF;
-    word length = flip_byte_order(4);
+    word length = FLIP(4);
     
     fwrite(&marker, sizeof(word), 1, f);
     fwrite(&length, sizeof(word), 1, f);
     
     // For now we'll output a restart marker after every line of MCUs
-    word rst_int = flip_byte_order(iceenv.num_mcu_x);
+    word rst_int = FLIP(iceenv.restart_interval);
     
     fwrite(&rst_int, sizeof(word), 1, f);
     

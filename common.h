@@ -9,9 +9,14 @@
 #ifndef common_h
 #define common_h
 
-#define CF(x) clip((((x) + 64) >> 7))
+#define CF(x) CLIPBYTE((((x) + 64) >> 7))
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
+#define CLIPBYTE(x) ((x) < 0 ? 0 : ((x) > 255 ? 255 : (x)))
+#define CLAMPQNT(x) ((x) < 1 ? 1 : ((x) > 255 ? 255 : (x)))
+#define FLIP(x) ((((x) & 0xFF) << 8) | (((x) & 0xFF00) >> 8))
+#define UPR4(x) (((x) & 0xF0) >> 4)
+#define LWR4(x) ((x) & 0xF)
 
 #define ERR_OK								0
 #define ERR_OPENFILE_FAILED					-1
@@ -92,8 +97,6 @@ struct jpeg_sof0
 
 #pragma pack(pop)
 
-byte clip(int x);
 int rnd(float x);
-word flip_byte_order(word inword);
 
 #endif /* common_h */

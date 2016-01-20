@@ -74,9 +74,20 @@ int main(int argc, const char** argv)
         return err;
     }
 
-	icejpeg_encode_init("out.jpg", my_image, img_width, img_height, 1, 1, 1);
-    icejpeg_setquality(40);
-    icejpeg_set_restart_markers(1);
+	struct jpeg_encoder_settings settings;
+	settings.width = img_width;
+	settings.height = img_height;
+	settings.num_components = 3;
+	settings.quality = 20;
+	settings.use_rst_markers = 1;
+	settings.sampling_factors[0].sx = 2;
+	settings.sampling_factors[0].sy = 2;
+	settings.sampling_factors[1].sx = 1;
+	settings.sampling_factors[1].sy = 1;
+	settings.sampling_factors[2].sx = 1;
+	settings.sampling_factors[2].sy = 1;
+
+	icejpeg_encode_init("out.jpg", my_image, &settings);
 	err = icejpeg_write();
 	icejpeg_encode_cleanup();
 
