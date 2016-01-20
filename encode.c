@@ -1118,6 +1118,7 @@ int icejpeg_encode_init(const char *filename, unsigned char *image, struct jpeg_
 	}
 
 	iceenv.num_components = settings->num_components;
+	iceenv.use_rst_markers = settings->use_rst_markers;
 	iceenv.width = settings->width;
 	iceenv.height = settings->height;
 	iceenv.max_sx = iceenv.max_sy = 0;
