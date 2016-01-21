@@ -589,19 +589,19 @@ static void find_code_lengths(void)
 
 #ifdef _JPEG_ENCODER_DEBUG
 
-//			if (i == 0 && dcac == 0)
-//			{
+// 			if (i == 0 && dcac == 0)
+// 			{
 //            printf("Component %d, dcac=%d\n", i, dcac);
-//
-//				for (j = 0; j < numcodes; j++)
-//				{
-//					printf("Code size of symbol %X = %d\n", j, !dcac ? c->dc_code_lengths[j] : c->ac_code_lengths[j]);
-//				}
-//				printf("\n");
-//				for (j = 0; j < 33; j++)
-//				{
-//					printf("Number of codes of length %d : %d\n", j, num_codes_of_each_length[j]);
-//				}
+// 
+// 				for (j = 0; j < numcodes; j++)
+// 				{
+// 					printf("Code size of symbol %X = %d\n", j, !dcac ? c->dc_code_lengths[j] : c->ac_code_lengths[j]);
+// 				}
+// 				printf("\n");
+// 				for (j = 0; j < 33; j++)
+// 				{
+// 					printf("Number of codes of length %d : %d\n", j, num_codes_of_each_length[j]);
+// 				}
 
 //			}
 #endif
@@ -989,28 +989,29 @@ static int create_bitstream()
 				icecomp[i].rlc_index++;
 			}
 
-//#ifdef _JPEG_ENCODER_DEBUG
-//            if (icecomp[i].rlc_index != icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x])
-//                printf("DIFFERENT!\n");
-//#endif
+// #ifdef _JPEG_ENCODER_DEBUG
+// 			if (icecomp[i].rlc_index != icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x])
+// 				printf("DIFFERENT!\n");
+// #endif
 		}
 		//break;
 		iceenv.cur_mcu_x++;
-        if (iceenv.use_rst_markers)
-        {
-            iceenv.rst_interval_counter++;
-            if (iceenv.rst_interval_counter == iceenv.restart_interval)
-            {
-                write_rst_marker();
-                iceenv.rst_interval_counter = 0;
-            }
-        }
 		if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
 		{
 			iceenv.cur_mcu_x = 0;
 			iceenv.cur_mcu_y++;
 			if (iceenv.cur_mcu_y == iceenv.num_mcu_y)
 				break;
+		}
+
+		if (iceenv.use_rst_markers)
+		{
+			iceenv.rst_interval_counter++;
+			if (iceenv.rst_interval_counter == iceenv.restart_interval)
+			{
+				write_rst_marker();
+				iceenv.rst_interval_counter = 0;
+			}
 		}
 	}
 
@@ -1051,7 +1052,15 @@ static int encode(void)
             }
             //icecomp[i].rlc_indices[iceenv.cur_mcu_y][iceenv.cur_mcu_x] = icecomp[i].rlc_index;
         }
-        //break;
+
+		iceenv.cur_mcu_x++;
+		if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
+		{
+			iceenv.cur_mcu_x = 0;
+			iceenv.cur_mcu_y++;
+			if (iceenv.cur_mcu_y == iceenv.num_mcu_y)
+				break;
+		}
 
 		// Count MCUs if restart markers are used
 		// If a marker must be written, reset DC prediction as well
@@ -1065,14 +1074,7 @@ static int encode(void)
                 iceenv.rst_interval_counter = 0;
             }
         }
-        iceenv.cur_mcu_x++;
-        if (iceenv.cur_mcu_x == iceenv.num_mcu_x)
-        {
-            iceenv.cur_mcu_x = 0;
-            iceenv.cur_mcu_y++;
-            if (iceenv.cur_mcu_y == iceenv.num_mcu_y)
-                break;
-        }
+
     }
 
 	for (i = 0; i < iceenv.num_components; i++)
