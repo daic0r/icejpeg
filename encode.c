@@ -917,7 +917,6 @@ inline static void write_rst_marker(void)
 static int create_bitstream()
 {
 	int i;
-    int mcu_x = 0, mcu_y = 0;
     
     iceenv.scan_buf_size = 0xFFFF;
     iceenv.scan_buffer = (byte*) malloc(iceenv.scan_buf_size);
@@ -949,6 +948,9 @@ static int create_bitstream()
 
 				if (is_dc) is_dc = 0;
 
+				if (!huff_table[cur_rlc->info].length)
+					return ERR_NO_HUFFMAN_CODE_FOR_SYMBOL;
+
 				err = write_bits(huff_table[cur_rlc->info].code, huff_table[cur_rlc->info].length);
 				if (err)
 					return err;
@@ -967,15 +969,6 @@ static int create_bitstream()
 				if (du_index == 64 || cur_rlc->value.length == 0xFF)
 				{
                     // printf("Done writing (%d,%d) (%d)\n", mcu_x, mcu_y, i);
-                    if (i == 2)
-                    {
-                        mcu_x++;
-                        if (mcu_x == iceenv.num_mcu_x)
-                        {
-                            mcu_x = 0;
-                            mcu_y++;
-                        }
-                    }
 					du_index = 0;
 					is_dc = 1;
 					num_du_per_mcu--;

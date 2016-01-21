@@ -34,6 +34,7 @@
 #define ERR_INVALID_LENGTH					-13
 #define ERR_CANNOT_OPEN_OUTPUT_FILE         -14
 #define ERR_RLC_BUFFER_OVERFLOW             -15
+#define ERR_NO_HUFFMAN_CODE_FOR_SYMBOL		-16
 
 #define MAX_DC_TABLES 4
 #define MAX_AC_TABLES 4
