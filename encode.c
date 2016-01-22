@@ -179,14 +179,18 @@ static void downsample()
 			//outpixels = icecomp[i].pixels + (y * icecomp[i].stride);
 			int* start_index = outpixels;
 			int step_x = iceenv.max_sx / icecomp[i].sx;
-			for (x = 0; x < iceenv.width - (step_x-1); x += step_x)
+			// Have to start past the edge of the image so we don't get chroma shift!
+			for (x = -(step_x>>1); x < iceenv.width - (step_x>>1); x += step_x)
 			{
 				register int pixel_avg = 0;
 				int x2;
 				for (x2 = 0; x2 < step_x; x2++)
 				{
-                    pixel_avg += *tmpimage;
-                    tmpimage += iceenv.num_components;
+					pixel_avg += *tmpimage;
+					// Check if we're already inside the image => only then do we advance the pointer
+					// If we're not, we just replicate the edge pixel
+					if (x + x2 >= 0 && x + x2 <= iceenv.width - 1)
+						tmpimage += iceenv.num_components;
 				}
 				pixel_avg /= step_x;
 				*outpixels++ = pixel_avg;
@@ -218,16 +222,21 @@ static void downsample()
 			cur_srcimage = srcimage2 + x;
 			outpixels = icecomp[i].pixels + x;
 			int* start_index = outpixels;
-			for (y = 0; y < icecomp[i].height - (step_y-1); y += step_y)
+			// Have to start past the edge of the image so we don't get chroma shift!
+			for (y = -(step_y>>1); y < icecomp[i].height-(step_y>>1); y += step_y)
 			{
 				register int pixel_avg = 0;
 				int y2;
 				for (y2 = 0; y2 < step_y; y2++)
 				{
 					pixel_avg += *cur_srcimage;
-					cur_srcimage += icecomp[i].stride;
+					// Check if we're already inside the image => only then do we advance the pointer
+					// If we're not, we just replicate the edge pixel
+					if (y + y2 >= 0 && y + y2 <= icecomp[i].height - 1)
+						cur_srcimage += icecomp[i].stride;
 				}
 				pixel_avg /= step_y;
+				// Level shift here!
                 *outpixels = pixel_avg - 128;
 #ifdef _JPEG_ENCODER_DEBUG
                 if (pixel_avg < min_val)
