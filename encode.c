@@ -186,10 +186,13 @@ static void downsample()
 				int x2;
 				for (x2 = 0; x2 < step_x; x2++)
 				{
-					pixel_avg += *tmpimage;
+					if (x + x2 < iceenv.width-1)
+						pixel_avg += *tmpimage;
+					else
+						pixel_avg += *(tmpimage - iceenv.num_components);
 					// Check if we're already inside the image => only then do we advance the pointer
 					// If we're not, we just replicate the edge pixel
-					if (x + x2 >= 0 && x + x2 <= iceenv.width - 1)
+					if (x + x2 >= 0 && x + x2 < iceenv.width)
 						tmpimage += iceenv.num_components;
 				}
 				pixel_avg /= step_x;
@@ -229,10 +232,13 @@ static void downsample()
 				int y2;
 				for (y2 = 0; y2 < step_y; y2++)
 				{
-					pixel_avg += *cur_srcimage;
+					if (y + y2 < icecomp[i].height-1)
+						pixel_avg += *cur_srcimage;
+					else
+						pixel_avg += *(cur_srcimage - icecomp[i].stride);
 					// Check if we're already inside the image => only then do we advance the pointer
 					// If we're not, we just replicate the edge pixel
-					if (y + y2 >= 0 && y + y2 <= icecomp[i].height - 1)
+					if (y + y2 >= 0 && y + y2 < icecomp[i].height)
 						cur_srcimage += icecomp[i].stride;
 				}
 				pixel_avg /= step_y;
