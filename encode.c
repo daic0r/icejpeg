@@ -1,3 +1,50 @@
+//  *************************************************************************************
+//
+//  encode.c
+//
+//  version 1.0
+//  01/23/2016
+//  Written by Matthias Grün
+//  m.gruen@theicingonthecode.com
+//
+//  IceJPEG is open source and may be used freely, as long as the original author
+//  of the code is mentioned.
+//
+//  You may redistribute it freely as long as no fees are charged and this information
+//  is included.
+//
+//  If modifications are made to the code that alter its behavior and the modified code
+//  is made available to others or used in other products, the author is to receive
+//  a copy of the modified code.
+//
+//  This code is provided as is and I do not and cannot guarantee the absence of bugs.
+//  Use of this code is at your own risk and I cannot be held liable for any
+//  damage that is caused by its use.
+//
+//  *************************************************************************************
+//
+//  This file constitutes the encoder part of my IceJPEG library, which was
+//  written mainly because I wanted to understand the inner workings of the
+//  JPEG format.
+//  Thus far it can only generate baseline compressed JPEGs.
+//  Grayscale images with one component as well as RGB images with 3 color
+//  channels are supported.
+//  Subsampling of each component is supported as well, both horizontally
+//  and vertically. The sampling factors are all configurable from the
+//  outside.
+//  The quantization tables used are the ones specified in the JPEG standard.
+//  Huffman tables, however, are generated on-the-fly for each image.
+//  For RGB images, 6 Huffman tables are generated: 3 for the DC value of each
+//  component and 3 for the AC values of each component.
+//
+//  Restart markers are supported as well. The restart interval cannot currently
+//  be set from the outside and, if restart is enabled, a restart marker will
+//  be output after each line of MCUs.
+//
+//  The code that performs the DCT was taken from jpeglib which slight modifications.
+//
+//  *************************************************************************************
+
 #include "encode.h"
 #include "common.h"
 #include "DCT.h"
