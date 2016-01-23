@@ -44,7 +44,7 @@ static void generate_constants()
 int main(int argc, const char** argv)
 {
   
-    const char * basename = "example";
+    const char * basename = "jessica3";
     
     char jpegfile[40];
     strcpy(jpegfile, basename);
@@ -78,10 +78,10 @@ int main(int argc, const char** argv)
 	settings.width = img_width;
 	settings.height = img_height;
 	settings.num_components = 3;
-	settings.quality = 20;
+	settings.quality = 50;
 	settings.use_rst_markers = 1;
 	settings.sampling_factors[0].sx = 2;
-	settings.sampling_factors[0].sy = 2;
+    settings.sampling_factors[0].sy = 2;
 	settings.sampling_factors[1].sx = 1;
 	settings.sampling_factors[1].sy = 1;
 	settings.sampling_factors[2].sx = 1;

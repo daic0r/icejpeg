@@ -14,7 +14,7 @@ struct jpeg_encoder_settings {
 	} sampling_factors[3];
 };
 
-int icejpeg_encode_init(const char *filename, unsigned char *image, struct jpeg_encoder_settings *settings);
+int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encoder_settings *settings);
 void icejpeg_setquality(unsigned char quality);
 void icejpeg_set_restart_markers(int userst);
 int icejpeg_write(void);

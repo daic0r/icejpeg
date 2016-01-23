@@ -61,7 +61,7 @@ struct jpeg_zrlc {
 
 struct __ice_env
 {
-	const char outfile[40];
+	char outfile[40];
 	int *image;
 	int width, height;
 	int num_components;
@@ -271,24 +271,6 @@ static void downsample()
 	}
 	free(iceenv.image);
 	iceenv.image = 0;
-}
-
-static void level_shift(void)
-{
-	int i;
-	for (i = 0; i < iceenv.num_components; i++)
-	{
-		int *pixels = icecomp[i].pixels;
-
-		int x, y;
-		for (y = 0; y < icecomp[i].height; y++)
-		{
-			for (x = 0; x < icecomp[i].stride; x++)
-			{
-				pixels[(y * icecomp[i].stride) + x] -= 128;
-			}
-		}
-	}
 }
 
 // The last parameter is only for the EOB code
@@ -813,7 +795,6 @@ static int gen_huffman_tables(void)
 
 		word cur_bitstring = 0;
 		byte cur_length = 0;
-		byte code_buf_pos = 0;
 
 		if (i >= 0 && i < 3)
 		{
@@ -1093,7 +1074,7 @@ static int encode(void)
     return ERR_OK;
 }
 
-int icejpeg_encode_init(const char *filename, unsigned char *image, struct jpeg_encoder_settings *settings)
+int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encoder_settings *settings)
 {
 	memset(&iceenv, 0, sizeof(struct __ice_env));
 	memset(icecomp, 0, sizeof(struct jpeg_encode_component) * 3);
