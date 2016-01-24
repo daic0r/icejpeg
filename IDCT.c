@@ -1,31 +1,38 @@
-/* idct.c, inverse fast discrete cosine transform                           */
-
-/* Copyright (C) 1994, MPEG Software Simulation Group. All Rights Reserved. */
-
-/*
- * Disclaimer of Warranty
- *
- * These software programs are available to the user without any license fee or
- * royalty on an "as is" basis.  The MPEG Software Simulation Group disclaims
- * any and all warranties, whether express, implied, or statuary, including any
- * implied warranties or merchantability or of fitness for a particular
- * purpose.  In no event shall the copyright-holder be liable for any
- * incidental, punitive, or consequential damages of any kind whatsoever
- * arising from the use of these programs.
- *
- * This disclaimer of warranty extends to the user of these programs and user's
- * customers, employees, agents, transferees, successors, and assigns.
- *
- * The MPEG Software Simulation Group does not represent or warrant that the
- * programs furnished hereunder are free of infringement of any third-party
- * patents.
- *
- * Commercial implementations of MPEG-1 and MPEG-2 video, including shareware,
- * are subject to royalty fees to patent holders.  Many of these patents are
- * general enough such that they are unavoidable regardless of implementation
- * design.
- *
- */
+//  *************************************************************************************
+//
+//  IDCT.c
+//
+//  version 1.0
+//  01/23/2016
+//  Written by Matthias Grün
+//  m.gruen@theicingonthecode.com
+//
+//  IceJPEG is open source and may be used freely, as long as the original author
+//  of the code is mentioned.
+//
+//  You may redistribute it freely as long as no fees are charged and this information
+//  is included.
+//
+//  If modifications are made to the code that alter its behavior and the modified code
+//  is made available to others or used in other products, the author is to receive
+//  a copy of the modified code.
+//
+//  This code is provided as is and I do not and cannot guarantee the absence of bugs.
+//  Use of this code is at your own risk and I cannot be held liable for any
+//  damage that is caused by its use.
+//
+//  *************************************************************************************
+//
+//  This file constitutes the IDCT (Inverse Discrete Cosine transform) part of my IceJPEG
+//  library, which was written mainly because I wanted to understand the inner workings
+//  of the JPEG format.
+//
+//  This code is a modification of the file idct.c from libmpeg2.
+//
+//  Modifications include doing the upshifting of the returned value by 128 here
+//  as well before returning.
+//
+//  *************************************************************************************
 
 /**********************************************************/
 /* inverse two dimensional DCT, Chen-Wang algorithm       */
@@ -186,6 +193,6 @@ void init_idct()
 
   iclp = iclip+512;
   for (i= -512; i<512; i++)
-    // ic0r: we do the upshifting her as well!
+    // daic0r: we do the upshifting her as well!
     iclp[i] = (i<-128) ? 0 : ((i>127) ? 255 : i + 128);
 }

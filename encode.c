@@ -33,6 +33,9 @@
 //  and vertically. The sampling factors are all configurable from the
 //  outside.
 //  The quantization tables used are the ones specified in the JPEG standard.
+//  Configuration of the compression quality is possible by passing a value
+//  between 1 and 100 in the quality field of the settings struct. This corresponds
+//  with the quality factor outlined in the JPEG standard.
 //  Huffman tables, however, are generated on-the-fly for each image.
 //  For RGB images, 6 Huffman tables are generated: 3 for the DC value of each
 //  component and 3 for the AC values of each component.
@@ -226,14 +229,22 @@ static void downsample()
 			//outpixels = icecomp[i].pixels + (y * icecomp[i].stride);
 			int* start_index = outpixels;
 			int step_x = iceenv.max_sx / icecomp[i].sx;
+            int start_x = 0;
+            int end_x = iceenv.width;
+            int modulo = iceenv.width % step_x;
+            if (modulo)
+            {
+                start_x -= DESCALE(UPSCALE(modulo) / 2);
+                end_x -= DESCALE(UPSCALE(modulo) / 2);
+            }
 			// Have to start past the edge of the image so we don't get chroma shift!
-			for (x = -(step_x>>1); x < iceenv.width - (step_x>>1); x += step_x)
+			for (x = start_x; x < end_x; x += step_x)
 			{
 				register int pixel_avg = 0;
 				int x2;
 				for (x2 = 0; x2 < step_x; x2++)
 				{
-					if (x + x2 < iceenv.width-1)
+					if (x + x2 < iceenv.width)
 						pixel_avg += *tmpimage;
 					else
 						pixel_avg += *(tmpimage - iceenv.num_components);
@@ -272,14 +283,22 @@ static void downsample()
 			cur_srcimage = srcimage2 + x;
 			outpixels = icecomp[i].pixels + x;
 			int* start_index = outpixels;
+            int start_y = 0;
+            int end_y = icecomp[i].height;
+            int modulo = icecomp[i].height % step_y;
+            if (modulo)
+            {
+                start_y -= DESCALE(UPSCALE(modulo) / 2);
+                end_y -= DESCALE(UPSCALE(modulo) / 2);
+            }
 			// Have to start past the edge of the image so we don't get chroma shift!
-			for (y = -(step_y>>1); y < icecomp[i].height-(step_y>>1); y += step_y)
+			for (y = start_y; y < end_y; y += step_y)
 			{
 				register int pixel_avg = 0;
 				int y2;
 				for (y2 = 0; y2 < step_y; y2++)
 				{
-					if (y + y2 < icecomp[i].height-1)
+					if (y + y2 < icecomp[i].height)
 						pixel_avg += *cur_srcimage;
 					else
 						pixel_avg += *(cur_srcimage - icecomp[i].stride);
@@ -941,9 +960,7 @@ inline static void fill_current_byte(void)
 {
     if (iceenv.bits_remaining < 8)
     {
-        iceenv.scan_buffer[iceenv.buf_pos] |= (1 << iceenv.bits_remaining) - 1;
-        advance_scan_buffer();
-        iceenv.bits_remaining = 8;
+        write_bits((1 << iceenv.bits_remaining) - 1, iceenv.bits_remaining);
     }
 }
 
@@ -1121,27 +1138,9 @@ static int encode(void)
     return ERR_OK;
 }
 
-int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encoder_settings *settings)
+int convert_to_ycbcbr(byte *image)
 {
-	memset(&iceenv, 0, sizeof(struct __ice_env));
-	memset(icecomp, 0, sizeof(struct jpeg_encode_component) * 3);
-
-	strcpy(iceenv.outfile, filename);
-	if (settings->num_components != 1 && settings->num_components != 3)
-	{
-		return ERR_INVALID_NUMBER_OF_COMP;
-	}
-
-	iceenv.num_components = settings->num_components;
-	iceenv.use_rst_markers = settings->use_rst_markers;
-	iceenv.width = settings->width;
-	iceenv.height = settings->height;
-	iceenv.max_sx = iceenv.max_sy = 0;
-	iceenv.image = (int *)malloc(iceenv.width * iceenv.height * iceenv.num_components * sizeof(int));
-	if (!iceenv.image)
-		return ERR_OUT_OF_MEMORY;
-    
-    // Copy image to our buffer and perform YCbCr->RGB conversion
+    // Copy image to our buffer and perform RGB->YCbCr conversion
     int x, y;
     int *cur_image = iceenv.image;
     for (y = 0; y < iceenv.height; y++)
@@ -1153,7 +1152,7 @@ int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encode
                 register int y = DESCALE(YR * image[0] + YG * image[1] + YB * image[2]);
                 register int cb = DESCALE(CBR * image[0] + CBG * image[1] + CBB * image[2]) + 128;
                 register int cr = DESCALE(CRR * image[0] + CRG * image[1] + CRB * image[2]) + 128;
-     
+                
                 *cur_image++ = y;
                 *cur_image++ = cb;
                 *cur_image++ = cr;
@@ -1168,7 +1167,42 @@ int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encode
             }
         }
     }
+    
+    return ERR_OK;
+}
 
+int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encoder_settings *settings)
+{
+	memset(&iceenv, 0, sizeof(struct __ice_env));
+	memset(icecomp, 0, sizeof(struct jpeg_encode_component) * 3);
+
+	strcpy(iceenv.outfile, filename);
+	if (settings->num_components != 1 && settings->num_components != 3)
+	{
+		return ERR_INVALID_NUMBER_OF_COMP;
+	}
+
+    int i = 0;
+    for (; i < settings->num_components; i++)
+    {
+        if (settings->sampling_factors[i].sx > 4 ||
+            settings->sampling_factors[i].sx & (settings->sampling_factors[i].sx - 1))
+            return ERR_INVALID_SAMPLING_FACTOR;
+
+        if (settings->sampling_factors[i].sy > 4 ||
+            settings->sampling_factors[i].sy & (settings->sampling_factors[i].sy - 1))
+            return ERR_INVALID_SAMPLING_FACTOR;
+    }
+    
+	iceenv.num_components = settings->num_components;
+	iceenv.use_rst_markers = settings->use_rst_markers;
+	iceenv.width = settings->width;
+	iceenv.height = settings->height;
+	iceenv.max_sx = iceenv.max_sy = 0;
+	iceenv.image = (int *)malloc(iceenv.width * iceenv.height * iceenv.num_components * sizeof(int));
+	if (!iceenv.image)
+		return ERR_OUT_OF_MEMORY;
+    
 	icecomp[0].sx = settings->sampling_factors[0].sx;
 	icecomp[0].sy = settings->sampling_factors[0].sy;
 	icecomp[1].sx = settings->sampling_factors[1].sx;
@@ -1176,8 +1210,7 @@ int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encode
 	icecomp[2].sx = settings->sampling_factors[2].sx;
 	icecomp[2].sy = settings->sampling_factors[2].sy;
 
-	int i = 0;
-	for (; i < iceenv.num_components; i++)
+	for (i = 0; i < iceenv.num_components; i++)
 	{
 		if (icecomp[i].sx > iceenv.max_sx)
 			iceenv.max_sx = icecomp[i].sx;
@@ -1211,7 +1244,8 @@ int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encode
     
 	icejpeg_setquality(settings->quality);
     
-	return ERR_OK;
+    return convert_to_ycbcbr(image);
+    
 }
 
 void icejpeg_setquality(unsigned char quality)
@@ -1233,12 +1267,10 @@ void icejpeg_set_restart_markers(int userst)
 int icejpeg_write(void)
 {
 	downsample();
-	//level_shift();
     encode();
 	find_code_lengths();
 	limit_code_lengths();
 	sort_codes();
-    //gen_huffman_code_sizes();
     gen_DHT();
 	gen_huffman_tables();
 	int err = create_bitstream();

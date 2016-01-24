@@ -79,7 +79,7 @@ int main(int argc, const char** argv)
 	settings.height = img_height;
 	settings.num_components = 3;
 	settings.quality = 50;
-	settings.use_rst_markers = 1;
+	settings.use_rst_markers = 0;
 	settings.sampling_factors[0].sx = 2;
     settings.sampling_factors[0].sy = 2;
 	settings.sampling_factors[1].sx = 1;

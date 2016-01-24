@@ -1,35 +1,44 @@
-/*
- * jfdctint.c
- *
- * Copyright (C) 1991-1996, Thomas G. Lane.
- * This file is part of the Independent JPEG Group's software.
- * For conditions of distribution and use, see the accompanying README file.
- *
- * This file contains a slow-but-accurate integer implementation of the
- * forward DCT (Discrete Cosine Transform).
- *
- * A 2-D DCT can be done by 1-D DCT on each row followed by 1-D DCT
- * on each column.  Direct algorithms are also available, but they are
- * much more complex and seem not to be any faster when reduced to code.
- *
- * This implementation is based on an algorithm described in
- *   C. Loeffler, A. Ligtenberg and G. Moschytz, "Practical Fast 1-D DCT
- *   Algorithms with 11 Multiplications", Proc. Int'l. Conf. on Acoustics,
- *   Speech, and Signal Processing 1989 (ICASSP '89), pp. 988-991.
- * The primary algorithm described there uses 11 multiplies and 29 adds.
- * We use their alternate method with 12 multiplies and 32 adds.
- * The advantage of this method is that no data path contains more than one
- * multiplication; this allows a very simple and accurate implementation in
- * scaled fixed-point arithmetic, with a minimal number of shifts.
- */
-
-#define JPEG_INTERNALS
+//  *************************************************************************************
+//
+//  DCT.c
+//
+//  version 1.0
+//  01/23/2016
+//  Written by Matthias Grün
+//  m.gruen@theicingonthecode.com
+//
+//  IceJPEG is open source and may be used freely, as long as the original author
+//  of the code is mentioned.
+//
+//  You may redistribute it freely as long as no fees are charged and this information
+//  is included.
+//
+//  If modifications are made to the code that alter its behavior and the modified code
+//  is made available to others or used in other products, the author is to receive
+//  a copy of the modified code.
+//
+//  This code is provided as is and I do not and cannot guarantee the absence of bugs.
+//  Use of this code is at your own risk and I cannot be held liable for any
+//  damage that is caused by its use.
+//
+//  *************************************************************************************
+//
+//  This file constitutes the DCT part of my IceJPEG library, which was
+//  written mainly because I wanted to understand the inner workings of the
+//  JPEG format.
+//
+//  This file is a modification of the code found in jfdctint.c of IJG's
+//  jpeglib.
+//
+//  Modifications include the simplification of symbol definitions and,
+//  most importantly, already removes the factor of 8 before returning,
+//  so the block of data returned by this function is ready to use without further
+//  processing.
+//
+//  *************************************************************************************
 
 #include "DCT.h"
 
-//#ifdef DCT_IFAST_SUPPORTED
-
-#define BITS_IN_JSAMPLE 8
 
 /*
  * The poop on this scaling stuff is as follows:
@@ -47,50 +56,21 @@
  *         THE FINAL RESULTS BY 3!!
  */
 
-#if BITS_IN_JSAMPLE == 8
+
 #define CONST_BITS  13
 #define PASS1_BITS  2
-#else
-#define CONST_BITS  13
-#define PASS1_BITS  1		/* lose a little precision to avoid overflow */
-#endif
 
-/*
- * Macros for handling fixed-point arithmetic; these are used by many
- * but not all of the DCT/IDCT modules.
- *
- * All values are expected to be of type INT32.
- * Fractional constants are scaled left by CONST_BITS bits.
- * CONST_BITS is defined within each module using these macros,
- * and may differ from one module to the next.
- */
 
-#define ONE	((INT32) 1)
-#define CONST_SCALE (ONE << CONST_BITS)
-
-/* Convert a positive real constant to an integer scaled by CONST_SCALE.
- * Caution: some C compilers fail to reduce "FIX(constant)" at compile time,
- * thus causing a lot of useless floating-point operations at run time.
- */
-
-#define FIX(x)	((INT32) ((x) * CONST_SCALE + 0.5))
+#define CONST_SCALE (1 << CONST_BITS)
 
 /* Descale and correctly round an INT32 value that's scaled by N bits.
  * We assume RIGHT_SHIFT rounds towards minus infinity, so adding
  * the fudge factor is correct for either sign of X.
  */
 
-#define DESCALE(x,n)  RIGHT_SHIFT((x) + (ONE << ((n)-1)), n)
+#define DESCALE(x,n)  RIGHT_SHIFT((x) + (1 << ((n)-1)), n)
 
 
-/* Some C compilers fail to reduce "FIX(constant)" at compile time, thus
- * causing a lot of useless floating-point operations at run time.
- * To get around this we use the following pre-calculated constants.
- * If you change CONST_BITS you may want to add appropriate values.
- * (With a reasonable C compiler, you can just rely on the FIX() macro...)
- */
-
-#if CONST_BITS == 13
 #define FIX_0_298631336  ((INT32)  2446)	/* FIX(0.298631336) */
 #define FIX_0_390180644  ((INT32)  3196)	/* FIX(0.390180644) */
 #define FIX_0_541196100  ((INT32)  4433)	/* FIX(0.541196100) */
@@ -103,39 +83,8 @@
 #define FIX_2_053119869  ((INT32)  16819)	/* FIX(2.053119869) */
 #define FIX_2_562915447  ((INT32)  20995)	/* FIX(2.562915447) */
 #define FIX_3_072711026  ((INT32)  25172)	/* FIX(3.072711026) */
-#else
-#define FIX_0_298631336  FIX(0.298631336)
-#define FIX_0_390180644  FIX(0.390180644)
-#define FIX_0_541196100  FIX(0.541196100)
-#define FIX_0_765366865  FIX(0.765366865)
-#define FIX_0_899976223  FIX(0.899976223)
-#define FIX_1_175875602  FIX(1.175875602)
-#define FIX_1_501321110  FIX(1.501321110)
-#define FIX_1_847759065  FIX(1.847759065)
-#define FIX_1_961570560  FIX(1.961570560)
-#define FIX_2_053119869  FIX(2.053119869)
-#define FIX_2_562915447  FIX(2.562915447)
-#define FIX_3_072711026  FIX(3.072711026)
-#endif
 
-
-/* Multiply an INT32 variable by an INT32 constant to yield an INT32 result.
- * For 8-bit samples with the recommended scaling, all the variable
- * and constant values involved are no more than 16 bits wide, so a
- * 16x16->32 bit multiply can be used instead of a full 32x32 multiply.
- * For 12-bit samples, a full 32-bit multiplication will be needed.
- */
-
-#ifndef MULTIPLY16C16		/* default definition */
-#define MULTIPLY16C16(var,const)  ((var) * (const))
-#endif
-
-#if BITS_IN_JSAMPLE == 8
-#define MULTIPLY(var,const)  MULTIPLY16C16(var,const)
-#else
 #define MULTIPLY(var,const)  ((var) * (const))
-#endif
-
 
 /*
  * Perform the forward DCT on one block of samples.

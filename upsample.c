@@ -26,8 +26,8 @@
 //  This file constitutes the upsampling code of my decoder.
 //
 //  The bicubic upsampling code is basically identical to the one used in Martin Fiedler's
-//  NanoJPEG, which I consulted to understand the upsampling algorithm. Thanks at this
-//  point for answering my questions on his blog.
+//  NanoJPEG, which I consulted to understand the upsampling algorithm. Thanks to Martin at
+//  this point for answering my questions on his blog.
 //
 //  The Lanczos upsampling was written by me but follows the same pattern.
 //
