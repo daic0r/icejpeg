@@ -44,7 +44,7 @@ static void generate_constants()
 int main(int argc, const char** argv)
 {
   
-    const char * basename = "jessica3";
+    const char * basename = "example";
     
     char jpegfile[40];
     strcpy(jpegfile, basename);

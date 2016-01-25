@@ -276,39 +276,4 @@ void upsampleLanczosV(struct jpeg_component *c)
     c->stride = c->width;
     free((void*) c->pixels);
     c->pixels = outBuf;
-//    byte* outBuf = (byte*)malloc(((c->width * c->height) << 1) * sizeof(byte));
-//    memset(outBuf, 0, ((c->width * c->height) << 1) * sizeof(byte));
-//    
-//    byte *curPos = outBuf;
-//    int s1 = c->stride;
-//    int s2 = 2 * s1;
-//    int s3 = 3 * s1;
-//    
-//    int x, y;
-//    
-//    const byte *inBuf = 0L;
-//    
-//    for (x = 0; x < c->width; x++)
-//    {
-//        curPos = outBuf + x;
-//        inBuf = c->pixels + x;
-//        // Less than 4 bicubic functions affect those first 3 entries
-//        *curPos = CF(inBuf[0] * LC2_1 + inBuf[s1] * LC2_5); curPos += c->width;
-//        *curPos = CF(inBuf[0] * LC3B_1 + inBuf[s1] * LC3B_3 + inBuf[s2] * LC3B_7); curPos += c->width;
-//        *curPos = CF(inBuf[0] * LC3A_3 + inBuf[s1] * LC3A_1 + inBuf[s2] * LC3A_5); curPos += c->width;
-//        for (y = 0; y < c->height - 3; y++)
-//        {
-//            *curPos = CF(inBuf[0] * LC4_5 + inBuf[s1] * LC4_1 + inBuf[s2] * LC4_3 + inBuf[s3] * LC4_7); curPos += c->width;
-//            *curPos = CF(inBuf[0] * LC4_7 + inBuf[s1] * LC4_3 + inBuf[s2] * LC4_1 + inBuf[s3] * LC4_5); curPos += c->width;
-//            inBuf += s1;
-//        }
-//        // and fill the last 3 entries
-//        *curPos = CF(inBuf[0] * LC3A_5 + inBuf[s1] * LC3A_1 + inBuf[s2] * LC3A_3); curPos += c->width;
-//        *curPos = CF(inBuf[0] * LC3B_7 + inBuf[s1] * LC3B_3 + inBuf[s2] * LC3B_1); curPos += c->width;
-//        *curPos = CF(inBuf[s1] * LC2_5 + inBuf[s2] * LC2_1);
-//    }
-//    c->height <<= 1;
-//    c->stride = c->width;
-//    free((void*) c->pixels);
-//    c->pixels = outBuf;
 }
