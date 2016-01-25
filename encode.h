@@ -39,9 +39,21 @@ struct jpeg_encoder_settings {
 	} sampling_factors[3];
 };
 
+struct jpeg_encoder_stats
+{
+    float bits_per_pixel;
+    float compression_ratio;
+    int scan_segment_size;
+    struct
+    {
+        int min_val, max_val;
+    } color_extrema[3];
+};
+
 int icejpeg_encode_init(char *filename, unsigned char *image, struct jpeg_encoder_settings *settings);
 void icejpeg_setquality(unsigned char quality);
 void icejpeg_set_restart_markers(int userst);
+void icejpeg_get_stats(struct jpeg_encoder_stats** stats);
 int icejpeg_write(void);
 void icejpeg_encode_cleanup();
 

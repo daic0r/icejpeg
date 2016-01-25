@@ -56,7 +56,7 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#define _JPEG_ENCODER_DEBUG
+//#define _JPEG_ENCODER_DEBUG
 #define _JPEG_ENCODER_STATS
 
 #define UPSCALE(x) ((x) << PRECISION)
@@ -74,7 +74,7 @@
 #define CRG -107
 #define CRB -21
 
-byte jpeg_qtbl_luminance[] = {
+const byte jpeg_qtbl_luminance[] = {
 	16, 11, 10, 16, 124, 140, 151, 161,
 	12, 12, 14, 19, 126, 158, 160, 155,
 	14, 13, 16, 24, 140, 157, 169, 156,
@@ -85,7 +85,7 @@ byte jpeg_qtbl_luminance[] = {
 	72, 92, 95, 98, 112, 100, 103, 199
 };
 
-byte jpeg_qtbl_chrominance[] = {
+const byte jpeg_qtbl_chrominance[] = {
 	17, 18, 24, 47, 99, 99, 99, 99,
 	18, 21, 26, 66, 99, 99, 99, 99,
 	24, 26, 56, 99, 99, 99, 99, 99,
@@ -167,22 +167,13 @@ struct jpeg_encode_component
     struct jpeg_dht ac_dht;
 	long rlc_count;
     
-    int rlc_indices[40][40];
+    //int rlc_indices[40][40];
 };
 
 struct jpeg_encode_component icecomp[3];
 
 #ifdef _JPEG_ENCODER_STATS
-struct __ice_stats
-{
-	float bits_per_pixel;
-	float compression_ratio;
-	int scan_segment_size;
-	struct
-	{
-		int min_val, max_val;
-	} color_extrema[3];
-} icestats;
+struct jpeg_encoder_stats icestats;
 #endif
 
 static int write_to_file();
@@ -378,7 +369,7 @@ static int add_rlc(int comp, int zeros, int category, int bits, int bit_length)
     return ERR_OK;
 }
 
-#define _JPEG_OUTPUT_DC
+//#define _JPEG_OUTPUT_DC
 
 static int encode_du(int comp, int du_x, int du_y)
 {
@@ -1043,10 +1034,6 @@ static int create_bitstream()
 					is_dc = 1;
 					num_du_per_mcu--;
                     start_index = icecomp[i].rlc_index;
-#ifdef _JPEG_ENCODER_DEBUG
-                    if (iceenv.cur_mcu_y == 10 && iceenv.cur_mcu_x == 0)
-                        printf("DU done.\n");
-#endif
                 }
 
 				icecomp[i].rlc_index++;
@@ -1082,8 +1069,10 @@ static int create_bitstream()
 	printf("Finished bitstream at %d bytes\n", iceenv.buf_pos);
 #endif
 
+#ifdef _JPEG_ENCODER_STATS
 	icestats.bits_per_pixel = (float)((iceenv.buf_pos * 8) + (8 - iceenv.bits_remaining)) / (float)(iceenv.width * iceenv.height);
 	icestats.compression_ratio = icestats.bits_per_pixel / 8.0f;
+#endif
     
     fill_current_byte();
     
@@ -1278,6 +1267,13 @@ void icejpeg_set_restart_markers(int userst)
     iceenv.use_rst_markers = userst;
     iceenv.restart_interval = iceenv.num_mcu_x;
 }
+
+#ifdef _JPEG_ENCODER_STATS
+void icejpeg_get_stats(struct jpeg_encoder_stats** stats)
+{
+    *stats = &icestats;
+}
+#endif
 
 int icejpeg_write(void)
 {

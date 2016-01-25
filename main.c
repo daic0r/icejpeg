@@ -89,6 +89,12 @@ int main(int argc, const char** argv)
 
 	icejpeg_encode_init("out.jpg", my_image, &settings);
 	err = icejpeg_write();
+    
+    struct jpeg_encoder_stats *stats;
+    icejpeg_get_stats(&stats);
+    printf("Bits per pixel: %3.2f\n", stats->bits_per_pixel);
+    printf("Compression ratio: %3.2f\n", stats->compression_ratio);
+    
 	icejpeg_encode_cleanup();
 
      char outfile[40];

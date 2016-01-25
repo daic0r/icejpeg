@@ -50,7 +50,7 @@
 #include <string.h>
 
 
-#define _JPEG_DEBUG
+//#define _JPEG_DEBUG
 #define USE_LANCZOS_UPSAMPLING
 
 
@@ -408,8 +408,9 @@ int process_dqt(void)
             }
             printf("\n");
         }
-    }
 #endif
+    }
+
     
     return ERR_OK;
 }
@@ -574,14 +575,13 @@ int decode_du(byte id_component)
     cur_code = get_next_code(cur_table);
     
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)
     printf("Code found: %X\n", cur_code);
 #endif
     
     bit_string = fetch_bits(cur_code);
     
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)    printf("Bits fetched: %d\n", bit_string);
+    printf("Bits fetched: %d\n", bit_string);
 #endif
     
     short value = get_signed_short(bit_string, cur_code);
@@ -591,7 +591,7 @@ int decode_du(byte id_component)
     block[0] = components[id_component].prev_dc;
     
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 0)    printf("DC value: %d, absolute value: %d\n", block[0], value);
+    printf("DC value: %d, absolute value: %d\n", block[0], value);
 #endif
     
     // Dequantize DC value
@@ -611,14 +611,14 @@ int decode_du(byte id_component)
         if (cur_code == 0)
         {
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)            printf("\tEOB encountered\n");
+    printf("\tEOB encountered\n");
 #endif
             had_eob = 1;
             break;
         }
         
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("\tSkipping %d zeros\n", (cur_code & 0xF0) >> 4);
+    printf("\tSkipping %d zeros\n", (cur_code & 0xF0) >> 4);
 #endif
         
         // Skip zeros
@@ -629,13 +629,13 @@ int decode_du(byte id_component)
         bit_string = fetch_bits(cur_code & 0xF);
         
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("Fetched %d bits\n", cur_code & 0xF);
+    printf("Fetched %d bits\n", cur_code & 0xF);
 #endif
         
         value = get_signed_short(bit_string, cur_code & 0xF);
         
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("AC value: %d\n", value);
+    printf("AC value: %d\n", value);
 #endif
         
         byte actual_index = jpeg_zzright[block_index];
@@ -646,7 +646,7 @@ int decode_du(byte id_component)
         block_index++;
         
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)        printf("Dequantized AC value: %d\n", block[actual_index]);
+    printf("Dequantized AC value: %d\n", block[actual_index]);
 #endif
     }
     
@@ -657,13 +657,13 @@ int decode_du(byte id_component)
     }
     
 #ifdef _JPEG_DEBUG
-    if (cur_mcu_x == 0 && cur_mcu_y == 10)    printf("\n");
+    printf("\n");
 #endif
     
     /****************************************************/
     /* Perform IDCT                                     */
     /****************************************************/
-    byte rowscols;
+    int rowscols;
     for (rowscols = 0; rowscols < 8; rowscols++)
     {
         idctrow(&block[8 * rowscols]);
