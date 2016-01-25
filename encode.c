@@ -57,6 +57,7 @@
 #include <limits.h>
 
 #define _JPEG_ENCODER_DEBUG
+#define _JPEG_ENCODER_STATS
 
 #define UPSCALE(x) ((x) << PRECISION)
 #define DESCALE(x) (((x) + (1 << (PRECISION - 1))) >> PRECISION)
@@ -171,6 +172,18 @@ struct jpeg_encode_component
 
 struct jpeg_encode_component icecomp[3];
 
+#ifdef _JPEG_ENCODER_STATS
+struct __ice_stats
+{
+	float bits_per_pixel;
+	float compression_ratio;
+	int scan_segment_size;
+	struct
+	{
+		int min_val, max_val;
+	} color_extrema[3];
+} icestats;
+#endif
 
 static int write_to_file();
 
@@ -271,8 +284,9 @@ static void downsample()
 		outpixels = icecomp[i].pixels;
 		int *cur_srcimage = 0;
 
-#ifdef _JPEG_ENCODER_DEBUG
-        int min_val = INT_MAX, max_val = INT_MIN;
+#ifdef _JPEG_ENCODER_STATS
+		icestats.color_extrema[i].min_val = INT_MAX;
+		icestats.color_extrema[i].max_val = INT_MIN;
 #endif
         
 
@@ -310,11 +324,11 @@ static void downsample()
 				pixel_avg /= step_y;
 				// Level shift here!
                 *outpixels = pixel_avg - 128;
-#ifdef _JPEG_ENCODER_DEBUG
-                if (pixel_avg < min_val)
-                    min_val = pixel_avg;
-                if (pixel_avg > max_val)
-                    max_val = pixel_avg;
+#ifdef _JPEG_ENCODER_STATS
+                if (pixel_avg < icestats.color_extrema[i].min_val)
+					icestats.color_extrema[i].min_val = pixel_avg;
+                if (pixel_avg > icestats.color_extrema[i].max_val)
+					icestats.color_extrema[i].max_val = pixel_avg;
 #endif
 				outpixels += icecomp[i].stride;
 			}
@@ -328,10 +342,6 @@ static void downsample()
 		}
         
         icecomp[i].height = new_height;
-        
-#ifdef _JPEG_ENCODER_DEBUG
-        printf("Component: %d (%dx%d), Min value = %d, Max value = %d\n", i, icecomp[i].width , icecomp[i].height, min_val, max_val);
-#endif
         
 		free(srcimage2);
 	}
@@ -1071,9 +1081,14 @@ static int create_bitstream()
 #ifdef _JPEG_ENCODER_DEBUG
 	printf("Finished bitstream at %d bytes\n", iceenv.buf_pos);
 #endif
+
+	icestats.bits_per_pixel = (float)((iceenv.buf_pos * 8) + (8 - iceenv.bits_remaining)) / (float)(iceenv.width * iceenv.height);
+	icestats.compression_ratio = icestats.bits_per_pixel / 8.0f;
     
     fill_current_byte();
     
+	icestats.scan_segment_size = iceenv.buf_pos;
+
 	return ERR_OK;
 }
 
