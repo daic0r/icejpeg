@@ -67,9 +67,9 @@ int main(int argc, const char** argv)
     if (err != ERR_OK)
     {
         printf("Error parsing JPEG file!\n");
-        if (err == ERR_PROGRESSIVE)
+        if (err == ERR_NOT_BASELINE)
         {
-            printf("Reason: Progressive JPEGs not supported!\n");
+            printf("Reason: Only baseline JPEGs are suppported!\n");
         }
         return err;
     }
@@ -78,7 +78,7 @@ int main(int argc, const char** argv)
 	settings.width = img_width;
 	settings.height = img_height;
 	settings.num_components = 3;
-	settings.quality = 50;
+	settings.quality = 10;
 	settings.use_rst_markers = 0;
 	settings.sampling_factors[0].sx = 2;
     settings.sampling_factors[0].sy = 2;

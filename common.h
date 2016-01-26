@@ -26,7 +26,7 @@
 #ifndef common_h
 #define common_h
 
-#define CF(x) CLIPBYTE((((x) + 64) >> 7))
+#define DESCALE8(x) CLIPBYTE((((x) + 64) >> 7))
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 #define CLIPBYTE(x) ((x) < 0 ? 0 : ((x) > 255 ? 255 : (x)))
@@ -45,7 +45,7 @@
 #define ERR_INVALID_SEGMENT_SIZE			-7
 #define ERR_INVALID_RST_MARKER              -8
 #define ERR_SOF0_MISSING                    -9
-#define ERR_PROGRESSIVE						-10
+#define ERR_NOT_BASELINE					-10
 #define ERR_OUT_OF_MEMORY					-11
 #define ERR_SCAN_BUFFER_OVERFLOW			-12
 #define ERR_INVALID_LENGTH					-13

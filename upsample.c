@@ -125,21 +125,21 @@ void upsampleBicubicH(struct jpeg_component *c)
 	for (y = 0; y < c->height; y++)
 	{
 		// Less than 4 bicubic functions affect those first 3 entries
-		curPos[0] = CF(inBuf[0] * CF2A + inBuf[1] * CF2B);
-		curPos[1] = CF(inBuf[0] * CF3X + inBuf[1] * CF3Y + inBuf[2] * CF3Z);
-		curPos[2] = CF(inBuf[0] * CF3A + inBuf[1] * CF3B + inBuf[2] * CF3C);
+		curPos[0] = DESCALE8(inBuf[0] * CF2A + inBuf[1] * CF2B);
+		curPos[1] = DESCALE8(inBuf[0] * CF3X + inBuf[1] * CF3Y + inBuf[2] * CF3Z);
+		curPos[2] = DESCALE8(inBuf[0] * CF3A + inBuf[1] * CF3B + inBuf[2] * CF3C);
 		for (x = 0; x < c->width - 3; x++)
 		{
-			curPos[(x << 1) + 3] = CF(inBuf[x] * CF4A + inBuf[x + 1] * CF4B + inBuf[x + 2] * CF4C + inBuf[x + 3] * CF4D);
-			curPos[(x << 1) + 4] = CF(inBuf[x] * CF4D + inBuf[x + 1] * CF4C + inBuf[x + 2] * CF4B + inBuf[x + 3] * CF4A);
+			curPos[(x << 1) + 3] = DESCALE8(inBuf[x] * CF4A + inBuf[x + 1] * CF4B + inBuf[x + 2] * CF4C + inBuf[x + 3] * CF4D);
+			curPos[(x << 1) + 4] = DESCALE8(inBuf[x] * CF4D + inBuf[x + 1] * CF4C + inBuf[x + 2] * CF4B + inBuf[x + 3] * CF4A);
 		}
 		// go to beginning of next line
 		curPos += c->width << 1;
 		inBuf += c->stride;
 		// and fill the last 3 entries in the previous line
-		curPos[-3] = CF(inBuf[-3] * CF3C + inBuf[-2] * CF3B + inBuf[-1] * CF3A);
-		curPos[-2] = CF(inBuf[-3] * CF3Z + inBuf[-2] * CF3Y + inBuf[-1] * CF3X);
-		curPos[-1] = CF(inBuf[-2] * CF2B + inBuf[-1] * CF2A);
+		curPos[-3] = DESCALE8(inBuf[-3] * CF3C + inBuf[-2] * CF3B + inBuf[-1] * CF3A);
+		curPos[-2] = DESCALE8(inBuf[-3] * CF3Z + inBuf[-2] * CF3Y + inBuf[-1] * CF3X);
+		curPos[-1] = DESCALE8(inBuf[-2] * CF2B + inBuf[-1] * CF2A);
 	}
     
     c->width <<= 1;
@@ -168,19 +168,19 @@ void upsampleBicubicV(struct jpeg_component *c)
 		curPos = outBuf + x;
 		inBuf = c->pixels + x;
 		// Less than 4 bicubic functions affect those first 3 entries
-		*curPos = CF(inBuf[0] * CF2A + inBuf[s1] * CF2B); curPos += c->width;
-		*curPos = CF(inBuf[0] * CF3X + inBuf[s1] * CF3Y + inBuf[s2] * CF3Z); curPos += c->width;
-		*curPos = CF(inBuf[0] * CF3A + inBuf[s1] * CF3B + inBuf[s2] * CF3C); curPos += c->width;
+		*curPos = DESCALE8(inBuf[0] * CF2A + inBuf[s1] * CF2B); curPos += c->width;
+		*curPos = DESCALE8(inBuf[0] * CF3X + inBuf[s1] * CF3Y + inBuf[s2] * CF3Z); curPos += c->width;
+		*curPos = DESCALE8(inBuf[0] * CF3A + inBuf[s1] * CF3B + inBuf[s2] * CF3C); curPos += c->width;
 		for (y = 0; y < c->height - 3; y++)
 		{
-			*curPos = CF(inBuf[0] * CF4A + inBuf[s1] * CF4B + inBuf[s2] * CF4C + inBuf[s3] * CF4D); curPos += c->width;
-			*curPos = CF(inBuf[0] * CF4D + inBuf[s1] * CF4C + inBuf[s2] * CF4B + inBuf[s3] * CF4A); curPos += c->width;
+			*curPos = DESCALE8(inBuf[0] * CF4A + inBuf[s1] * CF4B + inBuf[s2] * CF4C + inBuf[s3] * CF4D); curPos += c->width;
+			*curPos = DESCALE8(inBuf[0] * CF4D + inBuf[s1] * CF4C + inBuf[s2] * CF4B + inBuf[s3] * CF4A); curPos += c->width;
 			inBuf += s1;
 		}
 		// and fill the last 3 entries
-		*curPos = CF(inBuf[0] * CF3C + inBuf[s1] * CF3B + inBuf[s2] * CF3A); curPos += c->width;
-		*curPos = CF(inBuf[0] * CF3Z + inBuf[s1] * CF3Y + inBuf[s2] * CF3X); curPos += c->width;
-		*curPos = CF(inBuf[s1] * CF2B + inBuf[s2] * CF2A);
+		*curPos = DESCALE8(inBuf[0] * CF3C + inBuf[s1] * CF3B + inBuf[s2] * CF3A); curPos += c->width;
+		*curPos = DESCALE8(inBuf[0] * CF3Z + inBuf[s1] * CF3Y + inBuf[s2] * CF3X); curPos += c->width;
+		*curPos = DESCALE8(inBuf[s1] * CF2B + inBuf[s2] * CF2A);
 	}
     c->height <<= 1;
     c->stride = c->width;
@@ -205,25 +205,25 @@ void upsampleLanczosH(struct jpeg_component *c)
     for (y = 0; y < c->height; y++)
     {
         // Less than 4 bicubic functions affect those first 3 entries
-        curPos[0] = CF(inBuf[0] * LC3_1 + inBuf[1] * LC3_5 + inBuf[2] * LC3_9);
-        curPos[1] = CF(inBuf[0] * LC4B_1 + inBuf[1] * LC4B_3 + inBuf[2] * LC4B_7 + inBuf[3] * LC4B_11);
-        curPos[2] = CF(inBuf[0] * LC4A_3 + inBuf[1] * LC4A_1 + inBuf[2] * LC4A_5 + inBuf[3] * LC4A_9);
-        curPos[3] = CF(inBuf[0] * LC5B_5 + inBuf[1] * LC5B_1 + inBuf[2] * LC5B_3 + inBuf[3] * LC5B_7 + inBuf[4] * LC5B_11);
-        curPos[4] = CF(inBuf[0] * LC5A_7 + inBuf[1] * LC5A_3 + inBuf[2] * LC5A_1 + inBuf[3] * LC5A_5 + inBuf[4] * LC5A_9);
+        curPos[0] = DESCALE8(inBuf[0] * LC3_1 + inBuf[1] * LC3_5 + inBuf[2] * LC3_9);
+        curPos[1] = DESCALE8(inBuf[0] * LC4B_1 + inBuf[1] * LC4B_3 + inBuf[2] * LC4B_7 + inBuf[3] * LC4B_11);
+        curPos[2] = DESCALE8(inBuf[0] * LC4A_3 + inBuf[1] * LC4A_1 + inBuf[2] * LC4A_5 + inBuf[3] * LC4A_9);
+        curPos[3] = DESCALE8(inBuf[0] * LC5B_5 + inBuf[1] * LC5B_1 + inBuf[2] * LC5B_3 + inBuf[3] * LC5B_7 + inBuf[4] * LC5B_11);
+        curPos[4] = DESCALE8(inBuf[0] * LC5A_7 + inBuf[1] * LC5A_3 + inBuf[2] * LC5A_1 + inBuf[3] * LC5A_5 + inBuf[4] * LC5A_9);
         for (x = 0; x < c->width - 5; x++)
         {
-            curPos[(x << 1) + 5] = CF(inBuf[x] * LC6_9 + inBuf[x + 1] * LC6_5 + inBuf[x + 2] * LC6_1 + inBuf[x + 3] * LC6_3 + inBuf[x + 4] * LC6_7 + inBuf[x + 5] * LC6_11);
-            curPos[(x << 1) + 6] = CF(inBuf[x] * LC6_11 + inBuf[x + 1] * LC6_7 + inBuf[x + 2] * LC6_3 + inBuf[x + 3] * LC6_1  + inBuf[x + 4] * LC6_5 + inBuf[x + 5] * LC6_9);
+            curPos[(x << 1) + 5] = DESCALE8(inBuf[x] * LC6_9 + inBuf[x + 1] * LC6_5 + inBuf[x + 2] * LC6_1 + inBuf[x + 3] * LC6_3 + inBuf[x + 4] * LC6_7 + inBuf[x + 5] * LC6_11);
+            curPos[(x << 1) + 6] = DESCALE8(inBuf[x] * LC6_11 + inBuf[x + 1] * LC6_7 + inBuf[x + 2] * LC6_3 + inBuf[x + 3] * LC6_1  + inBuf[x + 4] * LC6_5 + inBuf[x + 5] * LC6_9);
         }
         // go to beginning of next line
         curPos += c->width << 1;
         inBuf += c->stride;
         // and fill the last 3 entries in the previous line
-        curPos[-5] = CF(inBuf[-5] * LC5A_9 + inBuf[-4] * LC5A_5 + inBuf[-3] * LC5A_1 + inBuf[-2] * LC5A_3 + inBuf[-1] * LC5A_7);
-        curPos[-4] = CF(inBuf[-5] * LC5B_11 + inBuf[-4] * LC5B_7 + inBuf[-3] * LC5B_3 + inBuf[-2] * LC5B_1 + inBuf[-1] * LC5B_5);
-        curPos[-3] = CF(inBuf[-4] * LC4A_9 + inBuf[-3] * LC4A_5 + inBuf[-2] * LC3A_1 + inBuf[-1] * LC3A_3);
-        curPos[-2] = CF(inBuf[-4] * LC4B_11 + inBuf[-3] * LC4B_7 + inBuf[-2] * LC4B_3 + inBuf[-1] * LC4B_1);
-        curPos[-1] = CF(inBuf[-3] * LC3_9 + inBuf[-2] * LC3_5 + inBuf[-1] * LC3_1);
+        curPos[-5] = DESCALE8(inBuf[-5] * LC5A_9 + inBuf[-4] * LC5A_5 + inBuf[-3] * LC5A_1 + inBuf[-2] * LC5A_3 + inBuf[-1] * LC5A_7);
+        curPos[-4] = DESCALE8(inBuf[-5] * LC5B_11 + inBuf[-4] * LC5B_7 + inBuf[-3] * LC5B_3 + inBuf[-2] * LC5B_1 + inBuf[-1] * LC5B_5);
+        curPos[-3] = DESCALE8(inBuf[-4] * LC4A_9 + inBuf[-3] * LC4A_5 + inBuf[-2] * LC3A_1 + inBuf[-1] * LC3A_3);
+        curPos[-2] = DESCALE8(inBuf[-4] * LC4B_11 + inBuf[-3] * LC4B_7 + inBuf[-2] * LC4B_3 + inBuf[-1] * LC4B_1);
+        curPos[-1] = DESCALE8(inBuf[-3] * LC3_9 + inBuf[-2] * LC3_5 + inBuf[-1] * LC3_1);
     }
     
     c->width <<= 1;
@@ -254,23 +254,23 @@ void upsampleLanczosV(struct jpeg_component *c)
         curPos = outBuf + x;
         inBuf = c->pixels + x;
         // Less than 6 lanczos functions affect those first 5 entries
-        *curPos = CF(inBuf[0] * LC3_1 + inBuf[s1] * LC3_5 + inBuf[s2] * LC3_9); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC4B_1 + inBuf[s1] * LC4B_3 + inBuf[s2] * LC4B_7 + inBuf[s3] * LC4B_11); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC4A_3 + inBuf[s1] * LC4A_1 + inBuf[s2] * LC4A_5 + inBuf[s3] * LC4A_9); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC5B_5 + inBuf[s1] * LC5B_1 + inBuf[s2] * LC5B_3 + inBuf[s3] * LC5B_7 + inBuf[s4] * LC5B_11); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC5A_7 + inBuf[s1] * LC5A_3 + inBuf[s2] * LC5A_1 + inBuf[s3] * LC5A_5 + inBuf[s4] * LC5A_9); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC3_1 + inBuf[s1] * LC3_5 + inBuf[s2] * LC3_9); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC4B_1 + inBuf[s1] * LC4B_3 + inBuf[s2] * LC4B_7 + inBuf[s3] * LC4B_11); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC4A_3 + inBuf[s1] * LC4A_1 + inBuf[s2] * LC4A_5 + inBuf[s3] * LC4A_9); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC5B_5 + inBuf[s1] * LC5B_1 + inBuf[s2] * LC5B_3 + inBuf[s3] * LC5B_7 + inBuf[s4] * LC5B_11); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC5A_7 + inBuf[s1] * LC5A_3 + inBuf[s2] * LC5A_1 + inBuf[s3] * LC5A_5 + inBuf[s4] * LC5A_9); curPos += c->width;
         for (y = 0; y < c->height - 5; y++)
         {
-            *curPos = CF(inBuf[0] * LC6_9 + inBuf[s1] * LC6_5 + inBuf[s2] * LC6_1 + inBuf[s3] * LC6_3 + inBuf[s4] * LC6_7 + inBuf[s5] * LC6_11); curPos += c->width;
-            *curPos = CF(inBuf[0] * LC6_11 + inBuf[s1] * LC6_7 + inBuf[s2] * LC6_3 + inBuf[s3] * LC6_1 + inBuf[s4] * LC6_5 + inBuf[s5] * LC6_9); curPos += c->width;
+            *curPos = DESCALE8(inBuf[0] * LC6_9 + inBuf[s1] * LC6_5 + inBuf[s2] * LC6_1 + inBuf[s3] * LC6_3 + inBuf[s4] * LC6_7 + inBuf[s5] * LC6_11); curPos += c->width;
+            *curPos = DESCALE8(inBuf[0] * LC6_11 + inBuf[s1] * LC6_7 + inBuf[s2] * LC6_3 + inBuf[s3] * LC6_1 + inBuf[s4] * LC6_5 + inBuf[s5] * LC6_9); curPos += c->width;
             inBuf += s1;
         }
         // and fill the last 5 entries
-        *curPos = CF(inBuf[0] * LC5A_9 + inBuf[s1] * LC5A_5 + inBuf[s2] * LC5A_1 + inBuf[s3] * LC5A_3 + inBuf[s4] * LC5A_7); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC5B_11 + inBuf[s1] * LC5B_7 + inBuf[s2] * LC5B_3 + inBuf[s3] * LC5B_1 + inBuf[s4] * LC5B_5); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC4A_9 + inBuf[s1] * LC4A_5 + inBuf[s2] * LC4A_1 + inBuf[s3] * LC4A_3); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC4B_11 + inBuf[s1] * LC4B_7 + inBuf[s2] * LC4B_3 + inBuf[s3] * LC4B_1); curPos += c->width;
-        *curPos = CF(inBuf[0] * LC3_9 + inBuf[s1] * LC3_5 + inBuf[s2] * LC3_1);
+        *curPos = DESCALE8(inBuf[0] * LC5A_9 + inBuf[s1] * LC5A_5 + inBuf[s2] * LC5A_1 + inBuf[s3] * LC5A_3 + inBuf[s4] * LC5A_7); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC5B_11 + inBuf[s1] * LC5B_7 + inBuf[s2] * LC5B_3 + inBuf[s3] * LC5B_1 + inBuf[s4] * LC5B_5); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC4A_9 + inBuf[s1] * LC4A_5 + inBuf[s2] * LC4A_1 + inBuf[s3] * LC4A_3); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC4B_11 + inBuf[s1] * LC4B_7 + inBuf[s2] * LC4B_3 + inBuf[s3] * LC4B_1); curPos += c->width;
+        *curPos = DESCALE8(inBuf[0] * LC3_9 + inBuf[s1] * LC3_5 + inBuf[s2] * LC3_1);
     }
     c->height <<= 1;
     c->stride = c->width;
